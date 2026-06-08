@@ -1,0 +1,22 @@
+import "dotenv/config";
+
+// Central config + feature flags. The app runs with zero keys; flags only decide
+// which REAL detections are active vs reported as "not evaluated".
+export const env = {
+  DATABASE_URL: process.env.DATABASE_URL ?? "file:./dev.db",
+  JWT_SECRET: process.env.JWT_SECRET ?? "dev-only-change-me-please-set-a-real-secret-0000000000000000",
+  APP_URL: process.env.APP_URL ?? "http://localhost:3100",
+  IPQS_API_KEY: process.env.IPQS_API_KEY ?? "",
+  PROXYCHECK_API_KEY: process.env.PROXYCHECK_API_KEY ?? "",
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? "",
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  REALITY_DEFENDER_API_KEY: process.env.REALITY_DEFENDER_API_KEY ?? "",
+  BIOMETRIC_RETENTION_DAYS: Number(process.env.BIOMETRIC_RETENTION_DAYS ?? "30"),
+};
+
+export const features = {
+  proxycheck: env.PROXYCHECK_API_KEY.length > 0, // real VPN/proxy/datacenter (friendly free tier)
+  ipqs: env.IPQS_API_KEY.length > 0, // real VPN/proxy/datacenter detection
+  stripeIdentity: env.STRIPE_SECRET_KEY.length > 0, // real ID + selfie + liveness
+  realityDefender: env.REALITY_DEFENDER_API_KEY.length > 0, // real deepfake content scoring
+};

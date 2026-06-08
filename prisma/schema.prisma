@@ -1,0 +1,109 @@
+// Orbyt Verify data model.
+// Deliberately minimal PII: name + work email only. No SSN, no DOB, no criminal/
+// employment records. We store IDV *results* (pass/fail, match score) — never the
+// biometric itself (the IDV vendor holds that). This light footprint is part of
+// what keeps the product out of CRA/consumer-report territory.
+// JSON blobs are stored as strings (SQLite-safe) and parsed in code.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled connection (Supabase pgbouncer, port 6543) — used by the serverless app.
+  url       = env("DATABASE_URL")
+  // Direct connection (port 5432) — used by `prisma db push` / migrations.
+  directUrl = env("DIRECT_URL")
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users         User[]
+  verifications Verification[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  orgId        String
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("member") // owner | member
+  createdAt    DateTime @default(now())
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+}
+
+model Verification {
+  id            String  @id @default(cuid())
+  orgId         String
+  candidateName String
+  candidateEmail String
+  // free-text context, e.g. "Senior Backend Engineer — remote contractor"
+  roleContext   String  @default("")
+  // claimed location (country ISO) the candidate/recruiter asserts
+  declaredCountry String @default("")
+  token         String  @unique @default(cuid())
+  status        String  @default("pending") // pending | consented | submitted | complete | expired
+
+  // --- results (populated on submit) ---
+  riskScore     Int?     // 0..100 (higher = more likely fake/fraudulent)
+  band          String?  // pass | review | risk
+  verdict       String?  // human label
+  signalsJson   String?  // JSON array of evaluated signals
+  idvStatus     String?  // verified | requires_input | skipped | error
+  idvProvider   String?
+  idvSessionRef String?  // vendor session id (Stripe Identity)
+  selfieMatch   Float?
+  livenessPassed Boolean?
+  observedCountry String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  org      Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  consents Consent[]
+
+  @@index([orgId])
+  @@index([orgId, status])
+}
+
+model Consent {
+  id             String   @id @default(cuid())
+  verificationId String
+  type           String   // BIOMETRIC | DATA_PROCESSING
+  documentVersion String
+  documentHash   String
+  fullNameTyped  String
+  ipAddress      String
+  userAgent      String   @default("")
+  retentionPolicy String  @default("")
+  signedAt       DateTime @default(now())
+
+  verification Verification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@index([verificationId])
+}
+
+// Append-only, hash-chained audit trail (no update/delete path in code).
+model AuditEvent {
+  id          String   @id @default(cuid())
+  orgId       String?
+  actor       String
+  action      String
+  entityType  String
+  entityId    String
+  payloadHash String
+  prevHash    String?
+  payloadJson String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([orgId])
+}
