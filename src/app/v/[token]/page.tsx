@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { OrbytMark } from "@/components/ui";
 import { collectPassiveSignals, collectCameraSignals } from "@/lib/signals";
@@ -89,6 +89,7 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
   const [phase, setPhase] = useState<"idle" | "running">("idle");
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   async function startIdv() {
     setBusy(true); setErr(null);
@@ -103,9 +104,11 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
 
   async function runCheck() {
     setPhase("running"); setErr(null);
+    // let the running-phase UI (with the <video> preview) mount first
+    await new Promise((r) => setTimeout(r, 80));
     try {
       const passive = await collectPassiveSignals();
-      const camera = await collectCameraSignals();
+      const camera = await collectCameraSignals(videoRef.current);
       const { faceImage, ...cam } = camera;
       const clientSignals = { ...passive, ...cam };
       const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals, faceImage }) });
@@ -139,10 +142,25 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
       <p className="text-sm text-muted mb-4">We&rsquo;ll briefly access your camera to confirm a real, present person and check your connection for impersonation signals. ~10 seconds. Nothing is recorded or stored — only a pass/fail result.</p>
       <div className="panel p-6 text-center">
         {phase === "running" ? (
-          <div className="py-4">
-            <div className="mx-auto h-8 w-8 rounded-full border-2 border-accent border-t-transparent animate-spin mb-3" />
+          <div className="py-2">
+            {/* live camera preview so the candidate sees what's being captured */}
+            <div className="relative mx-auto mb-4 w-full max-w-[280px] aspect-[4/3] overflow-hidden rounded-lg border border-rule bg-paper-3">
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                className="h-full w-full object-cover"
+                style={{ transform: "scaleX(-1)" }}
+              />
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-paper/80 px-2.5 py-1 backdrop-blur">
+                <span className="h-1.5 w-1.5 rounded-full bg-risk animate-pulse" />
+                <span className="font-mono text-[10px] uppercase tracking-wider text-ink">analyzing</span>
+              </div>
+            </div>
+            <div className="mx-auto h-7 w-7 rounded-full border-2 border-accent border-t-transparent animate-spin mb-2" />
             <p className="text-sm text-ink">Checking camera, connection &amp; running deepfake analysis…</p>
-            <p className="text-xs text-muted mt-1">Allow camera access if prompted. This can take up to a minute — please don&rsquo;t close the window.</p>
+            <p className="text-xs text-muted mt-1">Look at the camera. This can take up to a minute — please don&rsquo;t close the window.</p>
           </div>
         ) : (
           <>
