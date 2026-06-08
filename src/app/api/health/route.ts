@@ -16,7 +16,7 @@ export async function GET() {
         : features.ipqs
           ? "IPQualityScore (LIVE)"
           : "ipapi.co geo-only (VPN not evaluated)",
-      idv: features.stripeIdentity ? "Stripe Identity (LIVE)" : "skipped (not configured)",
+      idv: features.didit ? "Didit (LIVE, free)" : features.stripeIdentity ? "Stripe Identity (LIVE)" : "skipped (not configured)",
       deepfake: features.realityDefender ? "Reality Defender (configured)" : "not evaluated",
     },
   });

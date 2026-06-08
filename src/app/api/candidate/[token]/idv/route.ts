@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
   const hasBiometric = v.consents.some((c) => c.type === "BIOMETRIC");
   if (!hasBiometric) return NextResponse.json({ error: "Biometric consent required first" }, { status: 403 });
 
-  if (!features.stripeIdentity) {
+  if (!features.didit && !features.stripeIdentity) {
     return NextResponse.json({ enabled: false, provider: "none", url: null });
   }
   try {

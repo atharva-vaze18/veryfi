@@ -19,7 +19,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
     roleContext: v.roleContext,
     status: v.status,
     complete: v.status === "complete",
-    idvEnabled: features.stripeIdentity,
+    idvEnabled: features.didit || features.stripeIdentity,
     idvStatus: v.idvStatus,
     consents: CONSENT_ORDER.map((t) => {
       const d = CONSENT_DOCS[t];

@@ -10,6 +10,8 @@ export const env = {
   PROXYCHECK_API_KEY: process.env.PROXYCHECK_API_KEY ?? "",
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? "",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  DIDIT_API_KEY: process.env.DIDIT_API_KEY ?? "",
+  DIDIT_WORKFLOW_ID: process.env.DIDIT_WORKFLOW_ID ?? "",
   REALITY_DEFENDER_API_KEY: process.env.REALITY_DEFENDER_API_KEY ?? "",
   BIOMETRIC_RETENTION_DAYS: Number(process.env.BIOMETRIC_RETENTION_DAYS ?? "30"),
 };
@@ -17,6 +19,8 @@ export const env = {
 export const features = {
   proxycheck: env.PROXYCHECK_API_KEY.length > 0, // real VPN/proxy/datacenter (friendly free tier)
   ipqs: env.IPQS_API_KEY.length > 0, // real VPN/proxy/datacenter detection
-  stripeIdentity: env.STRIPE_SECRET_KEY.length > 0, // real ID + selfie + liveness
+  // ID verification: Didit (free) takes priority over Stripe when both are set.
+  didit: env.DIDIT_API_KEY.length > 0 && env.DIDIT_WORKFLOW_ID.length > 0, // real ID + selfie + liveness (free)
+  stripeIdentity: env.STRIPE_SECRET_KEY.length > 0, // real ID + selfie + liveness (~$1.50)
   realityDefender: env.REALITY_DEFENDER_API_KEY.length > 0, // real deepfake content scoring
 };
