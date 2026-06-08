@@ -22,11 +22,11 @@ export const CONSENT_DOCS: Record<"DATA_PROCESSING" | "BIOMETRIC", ConsentDoc> =
   },
   BIOMETRIC: {
     type: "BIOMETRIC",
-    version: "verify-biometric-2026-01",
-    title: "Biometric (ID + Selfie) Consent",
+    version: "verify-biometric-2026-02",
+    title: "Biometric (ID + Selfie) & Deepfake-Analysis Consent",
     body:
-      "I provide written consent for the identity-verification vendor to capture my government ID and a selfie and to compare them (1:1) solely to confirm I am who I claim to be. This is verification only — never a 1:many search or surveillance. The biometric data is processed by the vendor; this service stores only the pass/fail result, not my biometric.",
-    retentionPolicy: `Biometric identifiers are held by the IDV vendor and destroyed no later than ${env.BIOMETRIC_RETENTION_DAYS} days after the verification decision, or as required by law. This service stores only the result.`,
+      "I provide written consent for: (a) the identity-verification vendor to capture my government ID and a selfie and compare them (1:1) solely to confirm I am who I claim to be; and (b) a deepfake-detection vendor to analyze a single still frame from my camera to check whether the media is AI-generated or manipulated. Both are fraud/security checks — verification only, never a 1:many search, identification, or surveillance. The biometric data and the captured frame are processed by the vendors; this service stores only the pass/fail and risk result, not my biometric or the image.",
+    retentionPolicy: `Biometric identifiers are held by the IDV vendor and destroyed no later than ${env.BIOMETRIC_RETENTION_DAYS} days after the verification decision, or as required by law. The deepfake-analysis frame is transient — analyzed and then deleted, not stored. This service stores only the result.`,
   },
 };
 

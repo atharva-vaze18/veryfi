@@ -182,17 +182,24 @@ export function computeVerdict(input: {
     }
   }
 
-  // 12. Deepfake content
+  // 12. Deepfake content (Reality Defender). A confirmed AI-generated/manipulated
+  // face is near-conclusive fraud, so it carries heavy weight and, above a high
+  // confidence, forces the verdict to High-risk on its own.
+  let deepfakeOverride = false;
   if (input.deepfake.evaluated && input.deepfake.syntheticProbability != null) {
     const p = input.deepfake.syntheticProbability;
-    s.push(sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% synthetic`, p >= 0.6 ? 20 : -5, p >= 0.6, true,
-      p >= 0.6 ? "risk" : "pass", "Specialist model analysis of captured media."));
+    const manipulated = p >= 0.6;
+    if (p >= 0.7) deepfakeOverride = true;
+    s.push(sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% AI-generated`, manipulated ? 50 : -6, manipulated, true,
+      manipulated ? "risk" : "pass", input.deepfake.note));
   } else {
     s.push(sig("deepfake", "Deepfake content analysis", "not evaluated", 0, false, false, "info", input.deepfake.note));
   }
 
-  const score = Math.max(0, Math.min(100, s.reduce((a, x) => a + x.points, 0)));
-  const band = score >= 45 ? "risk" : score >= 20 ? "review" : "pass";
+  let score = Math.max(0, Math.min(100, s.reduce((a, x) => a + x.points, 0)));
+  let band: Verdict["band"] = score >= 45 ? "risk" : score >= 20 ? "review" : "pass";
+  // Deterministic override: a high-confidence deepfake is a hard fail.
+  if (deepfakeOverride) { band = "risk"; score = Math.max(score, 90); }
   const label = band === "risk" ? "High fraud risk" : band === "review" ? "Review recommended" : "Likely a real, present candidate";
   const evaluated = s.filter((x) => x.evaluated).length;
   return { riskScore: score, band, label, confidencePct: Math.round((evaluated / s.length) * 100), signals: s };

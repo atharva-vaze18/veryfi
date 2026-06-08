@@ -32,6 +32,7 @@ export interface CameraSignals {
   virtualCameraLabels: string[];
   livenessRan: boolean;
   livenessMotion: boolean;
+  faceImage?: string; // captured JPEG data-URL, sent for deepfake analysis (transient)
   error?: string;
 }
 
@@ -43,19 +44,49 @@ export async function collectCameraSignals(): Promise<CameraSignals> {
   const out: CameraSignals = { cameraLabels: [], virtualCameraLabels: [], livenessRan: false, livenessMotion: false };
   let stream: MediaStream | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
     const devices = await navigator.mediaDevices.enumerateDevices();
     out.cameraLabels = devices.filter((d) => d.kind === "videoinput").map((d) => d.label).filter(Boolean);
     out.virtualCameraLabels = out.cameraLabels.filter((l) => VCAM.test(l));
 
     out.livenessMotion = await measureMotion(stream);
     out.livenessRan = true;
+    // Capture a single still frame for deepfake-content analysis (Reality Defender).
+    out.faceImage = await captureFrame(stream);
   } catch (e) {
     out.error = (e as Error).message;
   } finally {
     stream?.getTracks().forEach((t) => t.stop());
   }
   return out;
+}
+
+// Captures a single still JPEG frame from the live stream (downscaled, ~640px)
+// for deepfake-content analysis. Returns a data-URL.
+function captureFrame(stream: MediaStream): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    const grab = () => {
+      try {
+        const w = video.videoWidth || 640;
+        const h = video.videoHeight || 480;
+        const scale = Math.min(1, 640 / w);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return resolve(undefined);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      } catch {
+        resolve(undefined);
+      }
+    };
+    video.play().then(() => setTimeout(grab, 300)).catch(() => resolve(undefined));
+  });
 }
 
 // Samples ~12 frames over ~1.8s and returns true if the feed shows natural motion

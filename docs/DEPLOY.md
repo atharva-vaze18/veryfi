@@ -58,6 +58,10 @@ Done — your app is live at `https://YOUR-APP.vercel.app`. Camera works (Vercel
 
 ---
 
+## Deepfake analysis & Vercel function limits
+
+The candidate submit runs **Reality Defender** deepfake analysis on the captured frame (~15–40s). The route sets `maxDuration = 60`, which **requires the Vercel Pro plan** — Vercel **Hobby caps functions at 10s** and would time out the deepfake step (it degrades gracefully to "not evaluated", so everything else still works). Render/Railway/Fly have no such limit. For scale, move the deepfake step to a background job using RD's two-step API (`upload` → poll `getResult`) and have the result page poll.
+
 ## Notes / gotchas
 
 - **Build command** is already `prisma generate && next build` (in package.json). Vercel runs it automatically; no DB is touched at build time.

@@ -7,8 +7,27 @@ import { fetchIdvResult } from "@/adapters/identity";
 import { scoreDeepfake } from "@/adapters/deepfake";
 import { computeVerdict, detectVirtualCameras, type ClientSignals } from "@/lib/score";
 import { audit } from "@/lib/audit";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export const runtime = "nodejs";
+// Deepfake analysis (Reality Defender) can take ~15-40s; allow up to 60s.
+// On Vercel this requires the Pro plan (Hobby caps at 10s) — see docs/DEPLOY.md.
+export const maxDuration = 60;
+
+// Writes a base64 data-URL image to a temp file for deepfake analysis. The frame
+// is transient — analyzed then deleted; never stored.
+async function writeFrameToTemp(dataUrl: string | undefined, token: string): Promise<string | null> {
+  if (!dataUrl) return null;
+  const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/i.exec(dataUrl);
+  if (!m) return null;
+  const buf = Buffer.from(m[2]!, "base64");
+  if (buf.length < 1000 || buf.length > 8_000_000) return null; // sanity bounds
+  const path = join(tmpdir(), `orbyt-rd-${token.slice(0, 12)}.${m[1] === "png" ? "png" : "jpg"}`);
+  await writeFile(path, buf);
+  return path;
+}
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   const v = await prisma.verification.findUnique({ where: { token: params.token }, include: { consents: true } });
@@ -20,18 +39,22 @@ export async function POST(req: Request, { params }: { params: { token: string }
     return NextResponse.json({ error: "All consents must be signed first" }, { status: 409 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { clientSignals?: ClientSignals };
+  const body = (await req.json().catch(() => ({}))) as { clientSignals?: ClientSignals; faceImage?: string };
   const client: ClientSignals = body.clientSignals ?? {};
   // Compute virtual-camera matches server-side from the reported device labels.
   client.virtualCameraLabels = detectVirtualCameras(client.cameraLabels ?? []);
+
+  // Persist the captured selfie frame to a temp file for deepfake analysis (then delete).
+  const framePath = await writeFrameToTemp(body.faceImage, params.token);
 
   const ip = getClientIp(req);
   const [ipIntel, email, idv, deepfake] = await Promise.all([
     getIpIntel(ip),
     getEmailRisk(v.candidateEmail),
     fetchIdvResult(v.idvSessionRef),
-    scoreDeepfake(),
+    scoreDeepfake(framePath),
   ]);
+  if (framePath) await unlink(framePath).catch(() => {});
 
   const verdict = computeVerdict({
     declaredCountry: v.declaredCountry,

@@ -27,7 +27,7 @@ A signal with no provider configured shows **"not evaluated"** — it is **never
 |---|---|---|
 | `IPQS_API_KEY` | VPN / proxy / datacenter / Tor + IP fraud score + geo | **Free** ~5k/mo (IPQualityScore) |
 | `STRIPE_SECRET_KEY` | 1:1 government-ID + selfie + liveness | ~$1.50/check (Stripe Identity) |
-| `REALITY_DEFENDER_API_KEY` | Deepfake-content scoring (slot) | Free ~50/mo |
+| `REALITY_DEFENDER_API_KEY` | **Deepfake-content scoring (LIVE)** — analyzes the captured selfie frame; a confirmed AI-generated face forces a High-risk verdict | Free ~50/mo |
 
 Full setup: [`docs/API_SETUP.md`](docs/API_SETUP.md).
 

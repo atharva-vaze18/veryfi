@@ -106,8 +106,9 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
     try {
       const passive = await collectPassiveSignals();
       const camera = await collectCameraSignals();
-      const clientSignals = { ...passive, ...camera };
-      const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals }) });
+      const { faceImage, ...cam } = camera;
+      const clientSignals = { ...passive, ...cam };
+      const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals, faceImage }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Failed");
       setResult(j);
@@ -140,8 +141,8 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
         {phase === "running" ? (
           <div className="py-4">
             <div className="mx-auto h-8 w-8 rounded-full border-2 border-accent border-t-transparent animate-spin mb-3" />
-            <p className="text-sm text-ink">Checking camera, connection &amp; device…</p>
-            <p className="text-xs text-muted mt-1">Allow camera access if prompted.</p>
+            <p className="text-sm text-ink">Checking camera, connection &amp; running deepfake analysis…</p>
+            <p className="text-xs text-muted mt-1">Allow camera access if prompted. This can take up to a minute — please don&rsquo;t close the window.</p>
           </div>
         ) : (
           <>
