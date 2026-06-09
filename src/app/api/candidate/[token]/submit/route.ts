@@ -5,8 +5,9 @@ import { getIpIntel } from "@/adapters/ipintel";
 import { getEmailRisk } from "@/adapters/emailrisk";
 import { fetchIdvResult } from "@/adapters/identity";
 import { scoreDeepfake } from "@/adapters/deepfake";
-import { computeVerdict, detectVirtualCameras, type ClientSignals } from "@/lib/score";
+import { computeVerdict, detectVirtualCameras, type ClientSignals, type BehavioralSignals } from "@/lib/score";
 import { audit } from "@/lib/audit";
+import { deliverWebhook } from "@/lib/webhook";
 import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,10 +43,10 @@ export async function POST(req: Request, { params }: { params: { token: string }
     return NextResponse.json({ error: "All consents must be signed first" }, { status: 409 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { clientSignals?: ClientSignals; faceImage?: string };
+  const body = (await req.json().catch(() => ({}))) as { clientSignals?: ClientSignals & { behavioral?: BehavioralSignals }; faceImage?: string; sessionFrames?: string[] };
   const client: ClientSignals = body.clientSignals ?? {};
-  // Compute virtual-camera matches server-side from the reported device labels.
   client.virtualCameraLabels = detectVirtualCameras(client.cameraLabels ?? []);
+  const behavioralSignals: BehavioralSignals | null = body.clientSignals?.behavioral ?? null;
 
   // Persist the captured selfie frame to a temp file for deepfake analysis (then delete).
   const framePath = await writeFrameToTemp(body.faceImage, params.token);
@@ -59,6 +60,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
   ]);
   if (framePath) await unlink(framePath).catch(() => {});
 
+  const scoringProfile = await prisma.scoringProfile.findUnique({ where: { orgId: v.orgId } });
   const verdict = computeVerdict({
     declaredCountry: v.declaredCountry,
     ip: ipIntel,
@@ -66,7 +68,32 @@ export async function POST(req: Request, { params }: { params: { token: string }
     idv,
     deepfake,
     client,
-  });
+    behavioral: behavioralSignals,
+  }, scoringProfile ?? undefined);
+
+  // Feature 6: store session frames in Supabase Storage if band === "review"
+  let frameStorageKeys: string[] | null = null;
+  if (verdict.band === "review" && Array.isArray(body.sessionFrames) && body.sessionFrames.length > 0) {
+    try {
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseUrl && supabaseServiceKey) {
+        const { createClient } = await import("@supabase/supabase-js");
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const keys: string[] = [];
+        for (const frame of body.sessionFrames.slice(0, 10)) {
+          const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/i.exec(frame);
+          if (!m) continue;
+          const buf = Buffer.from(m[2]!, "base64");
+          const ts = Date.now();
+          const key = `${v.id}/${ts}-${keys.length}.jpg`;
+          const { error } = await supabase.storage.from("session-frames").upload(key, buf, { contentType: "image/jpeg" });
+          if (!error) keys.push(key);
+        }
+        if (keys.length > 0) frameStorageKeys = keys;
+      }
+    } catch { /* storage upload failure should not block the submission */ }
+  }
 
   await prisma.verification.update({
     where: { id: v.id },
@@ -82,6 +109,8 @@ export async function POST(req: Request, { params }: { params: { token: string }
       livenessPassed: idv.livenessPassed,
       observedCountry: ipIntel.country,
       completedAt: new Date(),
+      behavioralJson: behavioralSignals ? JSON.stringify(behavioralSignals) : null,
+      frameStorageKeys: frameStorageKeys ? JSON.stringify(frameStorageKeys) : null,
     },
   });
 
@@ -93,6 +122,31 @@ export async function POST(req: Request, { params }: { params: { token: string }
     entityId: v.id,
     payload: { band: verdict.band, riskScore: verdict.riskScore },
   });
+
+  // Deliver webhooks asynchronously — don't block the candidate's response.
+  const webhookEvent = verdict.band === "risk" ? "verification.flagged" : "verification.completed";
+  deliverWebhook(v.id, "verification.completed", {
+    event: "verification.completed",
+    verificationId: v.id,
+    candidateName: v.candidateName,
+    candidateEmail: v.candidateEmail,
+    band: verdict.band,
+    riskScore: verdict.riskScore,
+    completedAt: new Date().toISOString(),
+    signals: verdict.signals,
+  }).catch(() => {});
+  if (webhookEvent === "verification.flagged") {
+    deliverWebhook(v.id, "verification.flagged", {
+      event: "verification.flagged",
+      verificationId: v.id,
+      candidateName: v.candidateName,
+      candidateEmail: v.candidateEmail,
+      band: verdict.band,
+      riskScore: verdict.riskScore,
+      completedAt: new Date().toISOString(),
+      signals: verdict.signals,
+    }).catch(() => {});
+  }
 
   return NextResponse.json({
     band: verdict.band,

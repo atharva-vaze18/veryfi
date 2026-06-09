@@ -71,6 +71,10 @@ model Verification {
   selfieMatch   Float?
   livenessPassed Boolean?
   observedCountry String?
+  behavioralJson  String?  // Feature 5: timing/interaction metadata (no keystrokes)
+  frameStorageKeys String? // Feature 6: JSON array of Supabase Storage keys
+  reviewDecision  String?  // Feature 6: "cleared" | "confirmed_fraud" | null
+  reviewNotes     String?  // Feature 6: recruiter annotation
 
   createdAt   DateTime  @default(now())
   completedAt DateTime?
@@ -80,6 +84,40 @@ model Verification {
 
   @@index([orgId])
   @@index([orgId, status])
+}
+
+model WebhookEndpoint {
+  id              String    @id @default(cuid())
+  orgId           String
+  url             String
+  secret          String    // HMAC-SHA256 signing secret
+  events          String    // JSON array: ["verification.completed","verification.flagged"]
+  enabled         Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  lastDeliveredAt DateTime?
+
+  deliveries WebhookDelivery[]
+
+  @@index([orgId])
+}
+
+model WebhookDelivery {
+  id                  String   @id @default(cuid())
+  endpointId          String
+  verificationId      String
+  event               String
+  payloadJson         String
+  responseStatus      Int?
+  responseBodySnippet String?
+  attemptCount        Int      @default(0)
+  lastAttemptAt       DateTime?
+  success             Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId])
+  @@index([verificationId])
 }
 
 model Consent {
@@ -97,6 +135,39 @@ model Consent {
   verification Verification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
 
   @@index([verificationId])
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  orgId       String
+  keyHash     String    @unique
+  keyPrefix   String    // first 8 chars for display, e.g. "vfy_live"
+  name        String
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  enabled     Boolean   @default(true)
+
+  @@index([orgId])
+}
+
+model Integration {
+  id        String   @id @default(cuid())
+  orgId     String   @unique
+  provider  String   // "greenhouse"
+  config    String   // JSON: {harvestApiKey, webhookSecret, triggerStageId, jobIds[]}
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([orgId])
+}
+
+model ScoringProfile {
+  id                String   @id @default(cuid())
+  orgId             String   @unique
+  weightsJson       String   @default("{}") // map of signal key → weight override
+  bandThresholds    String   @default("{\"pass\":20,\"review\":45}") // {pass: number, review: number}
+  useGlobalDefaults Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
 }
 
 // Append-only, hash-chained audit trail (no update/delete path in code).
