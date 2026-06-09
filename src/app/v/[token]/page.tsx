@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { OrbytMark } from "@/components/ui";
 import { collectPassiveSignals, collectCameraSignals } from "@/lib/signals";
+import { runLivenessChallenge } from "@/lib/liveness";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -98,6 +99,7 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [idvUrl, setIdvUrl] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<string | null>(null);
   const onCameraStep = !result && !needsIdv;
 
   // While the embedded ID flow is open, poll for completion and advance.
@@ -155,10 +157,24 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
       const video = videoRef.current;
       if (!video) throw new Error("Camera not available");
       setPhase("running");
+      // 1. On-device challenge-response liveness (random live actions).
+      const challenge = await runLivenessChallenge(video, setPrompt);
+      // 2. Capture frame + device/connection signals.
       const passive = await collectPassiveSignals();
       const camera = await collectCameraSignals(video);
       const { faceImage, ...cam } = camera;
-      const clientSignals = { ...passive, ...cam };
+      const clientSignals = {
+        ...passive,
+        ...cam,
+        challenge: {
+          ran: challenge.ran,
+          passed: challenge.passed,
+          challengesPassed: challenge.challengesPassed,
+          challengesTotal: challenge.challengesTotal,
+          multipleFaces: challenge.multipleFaces,
+          faceWasPresent: challenge.faceWasPresent,
+        },
+      };
       const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals, faceImage }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Failed");
@@ -206,7 +222,7 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
     <div className="animate-fade-up">
       <div className="label mb-1">Live check</div>
       <h1 className="font-display text-2xl text-ink mb-3">Quick camera check</h1>
-      <p className="text-sm text-muted mb-4">We&rsquo;ll access your camera to confirm a real, present person and check your connection for impersonation signals. Nothing is stored — only a pass/fail result.</p>
+      <p className="text-sm text-muted mb-4">We&rsquo;ll ask you to do a couple of quick actions on camera (like turning your head or blinking) to confirm you&rsquo;re a real, present person, and check your connection for impersonation signals. The liveness check runs in your browser — the video isn&rsquo;t stored.</p>
       <div className="panel p-5">
         {/* live camera preview — always visible on this step */}
         <div className="relative mx-auto mb-4 w-full max-w-[300px] aspect-[4/3] overflow-hidden rounded-lg border border-rule bg-paper-3">
@@ -218,7 +234,13 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
             className="h-full w-full object-cover"
             style={{ transform: "scaleX(-1)" }}
           />
-          {phase === "running" && (
+          {/* big challenge prompt overlay */}
+          {phase === "running" && prompt && (
+            <div className="absolute inset-0 flex items-center justify-center bg-paper/55 backdrop-blur-[1px] p-3">
+              <span className="font-display text-lg text-ink text-center leading-snug drop-shadow">{prompt}</span>
+            </div>
+          )}
+          {phase === "running" && !prompt && (
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-paper/80 px-2.5 py-1 backdrop-blur">
               <span className="h-1.5 w-1.5 rounded-full bg-risk animate-pulse" />
               <span className="font-mono text-[10px] uppercase tracking-wider text-ink">analyzing</span>
@@ -228,8 +250,8 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
         {phase === "running" ? (
           <div className="text-center">
             <div className="mx-auto h-7 w-7 rounded-full border-2 border-accent border-t-transparent animate-spin mb-2" />
-            <p className="text-sm text-ink">Checking camera, connection &amp; running deepfake analysis…</p>
-            <p className="text-xs text-muted mt-1">Look at the camera. This can take up to a minute — please don&rsquo;t close the window.</p>
+            <p className="text-sm text-ink">{prompt ? "Follow the on-screen prompt…" : "Checking connection & running deepfake analysis…"}</p>
+            <p className="text-xs text-muted mt-1">Keep your face in view. This can take up to a minute — please don&rsquo;t close the window.</p>
           </div>
         ) : (
           <div className="text-center">

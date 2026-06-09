@@ -17,6 +17,15 @@ export interface ClientSignals {
   livenessRan?: boolean;
   livenessMotion?: boolean; // true = frames changed (live), false = static (photo)
   screen?: { w: number; h: number };
+  // On-device challenge-response liveness (MediaPipe). The strongest live signal.
+  challenge?: {
+    ran: boolean;
+    passed: boolean;
+    challengesPassed: number;
+    challengesTotal: number;
+    multipleFaces: boolean;
+    faceWasPresent: boolean;
+  };
 }
 
 export type Severity = "pass" | "info" | "warn" | "risk";
@@ -174,6 +183,27 @@ export function computeVerdict(input: {
       live ? "Camera feed showed natural motion (not a static photo)." : "No motion detected — possible static photo held to camera."));
   } else {
     s.push(sig("liveness", "Live-presence (motion) check", "not run", 0, false, false, "info", "Liveness check was skipped."));
+  }
+
+  // 10b. Challenge-response liveness (on-device, strongest live signal).
+  const ch = c.challenge;
+  if (ch?.ran) {
+    if (ch.multipleFaces) {
+      s.push(sig("challenge", "Live challenge-response", "multiple faces", 18, true, true, "risk",
+        "More than one face was present during the live challenge (possible coaching/off-camera help)."));
+    } else if (!ch.faceWasPresent) {
+      s.push(sig("challenge", "Live challenge-response", "no live face", 25, true, true, "risk",
+        "No live face was detected while the on-device challenges ran — possible photo / non-present candidate."));
+    } else if (ch.passed) {
+      s.push(sig("challenge", "Live challenge-response", `passed ${ch.challengesPassed}/${ch.challengesTotal}`, -12, false, true, "pass",
+        "Candidate performed the random live actions (turn/blink/lean) — strong evidence of a real, present person."));
+    } else {
+      s.push(sig("challenge", "Live challenge-response", `failed (${ch.challengesPassed}/${ch.challengesTotal})`, 28, true, true, "risk",
+        "Candidate did not complete the random live actions — common for static photos and real-time deepfakes."));
+    }
+  } else {
+    s.push(sig("challenge", "Live challenge-response", "not evaluated", 0, false, false, "info",
+      "On-device liveness challenge did not run (model unavailable or camera not granted)."));
   }
 
   // 11. Email risk

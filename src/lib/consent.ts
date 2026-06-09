@@ -22,11 +22,11 @@ export const CONSENT_DOCS: Record<"DATA_PROCESSING" | "BIOMETRIC", ConsentDoc> =
   },
   BIOMETRIC: {
     type: "BIOMETRIC",
-    version: "verify-biometric-2026-02",
-    title: "Biometric (ID + Selfie) & Deepfake-Analysis Consent",
+    version: "verify-biometric-2026-03",
+    title: "Biometric (ID + Selfie), Liveness & Deepfake-Analysis Consent",
     body:
-      "I provide written consent for: (a) the identity-verification vendor to capture my government ID and a selfie and compare them (1:1) solely to confirm I am who I claim to be; and (b) a deepfake-detection vendor to analyze a single still frame from my camera to check whether the media is AI-generated or manipulated. Both are fraud/security checks — verification only, never a 1:many search, identification, or surveillance. The biometric data and the captured frame are processed by the vendors; this service stores only the pass/fail and risk result, not my biometric or the image.",
-    retentionPolicy: `Biometric identifiers are held by the IDV vendor and destroyed no later than ${env.BIOMETRIC_RETENTION_DAYS} days after the verification decision, or as required by law. The deepfake-analysis frame is transient — analyzed and then deleted, not stored. This service stores only the result.`,
+      "I provide written consent for: (a) the identity-verification vendor to capture my government ID and a selfie and compare them (1:1) solely to confirm I am who I claim to be; (b) an on-device liveness check that analyzes my camera in my own browser — asking me to perform brief actions (e.g. turn my head, blink) to confirm I am a real, present person; and (c) a deepfake-detection vendor to analyze a single still frame from my camera to check whether the media is AI-generated or manipulated. All are fraud/security checks — verification only, never a 1:many search, identification, or surveillance. The on-device liveness analysis runs in my browser and the video is not transmitted or stored; the ID/selfie and the single deepfake frame are processed by the vendors; this service stores only the pass/fail and risk result, not my biometric or any image.",
+    retentionPolicy: `The on-device liveness video never leaves my device and is not stored. Biometric identifiers are held by the IDV vendor and destroyed no later than ${env.BIOMETRIC_RETENTION_DAYS} days after the verification decision, or as required by law. The deepfake-analysis frame is transient — analyzed and then deleted, not stored. This service stores only the result.`,
   },
 };
 
