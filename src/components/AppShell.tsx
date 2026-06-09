@@ -28,7 +28,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const nav = [
     { href: "/dashboard", label: "Verifications" },
-    { href: "/verify/new", label: "New verification" },
+    { href: "/verify/new", label: "New" },
+    { href: "/dashboard/settings/webhooks", label: "Webhooks" },
+    { href: "/dashboard/settings/api", label: "API Keys" },
+    { href: "/dashboard/settings/integrations", label: "Integrations" },
+    { href: "/dashboard/settings/scoring", label: "Scoring" },
     { href: "/settings/team", label: "Team" },
     { href: "/settings/billing", label: "Billing" },
   ];

@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { OrbytMark } from "@/components/ui";
 import { collectPassiveSignals, collectCameraSignals } from "@/lib/signals";
 import { runLivenessChallenge } from "@/lib/liveness";
+import { startCollecting } from "@/lib/behavioralCollector";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,10 +37,17 @@ export default function CandidateFlow() {
 }
 
 function Flow({ token, data, reload }: { token: string; data: any; reload: () => void }) {
+  const stopBehavioralRef = useRef<(() => ReturnType<typeof startCollecting>) | null>(null);
+
+  useEffect(() => {
+    const stop = startCollecting();
+    stopBehavioralRef.current = stop as unknown as (() => ReturnType<typeof startCollecting>);
+  }, []);
+
   if (data.complete) return <Done id={data.id} />;
   const nextConsent = data.consents.find((c: any) => !c.signed);
   if (nextConsent) return <ConsentStep key={nextConsent.type} token={token} doc={nextConsent} reload={reload} />;
-  return <VerifyStep token={token} data={data} reload={reload} />;
+  return <VerifyStep token={token} data={data} reload={reload} stopBehavioral={stopBehavioralRef.current} />;
 }
 
 function ConsentStep({ token, doc, reload }: { token: string; doc: any; reload: () => void }) {
@@ -88,7 +96,7 @@ function ConsentStep({ token, doc, reload }: { token: string; doc: any; reload: 
   );
 }
 
-function VerifyStep({ token, data, reload }: { token: string; data: any; reload: () => void }) {
+function VerifyStep({ token, data, reload, stopBehavioral }: { token: string; data: any; reload: () => void; stopBehavioral: any }) {
   const params = useSearchParams();
   const returned = params.get("idv") === "return";
   const needsIdv = data.idvEnabled && !returned && !data.idvStatus;
@@ -147,8 +155,8 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
 
   async function runCheck() {
     setErr(null);
+    const sessionFrames: string[] = [];
     try {
-      // ensure the camera is live (the preview effect normally already started it)
       if (!streamRef.current) {
         const s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
         streamRef.current = s;
@@ -157,9 +165,31 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
       const video = videoRef.current;
       if (!video) throw new Error("Camera not available");
       setPhase("running");
-      // 1. On-device challenge-response liveness (random live actions).
-      const challenge = await runLivenessChallenge(video, setPrompt);
-      // 2. Capture frame + device/connection signals.
+
+      // Capture a frame at challenge start (Feature 6).
+      const captureFrame = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = 320; canvas.height = 240;
+          const ctx = canvas.getContext("2d");
+          if (ctx) { ctx.drawImage(video, 0, 0, 320, 240); sessionFrames.push(canvas.toDataURL("image/jpeg", 0.75)); }
+        } catch { /* ignore */ }
+      };
+      captureFrame();
+
+      // 1. On-device challenge-response liveness — capture a frame at each challenge moment.
+      const challenge = await runLivenessChallenge(video, (p) => {
+        if (p) captureFrame();
+        setPrompt(p);
+      });
+
+      // Capture final frame at completion.
+      captureFrame();
+
+      // 2. Collect behavioral signals (Feature 5).
+      const behavioral = typeof stopBehavioral === "function" ? stopBehavioral() : null;
+
+      // 3. Capture frame + device/connection signals.
       const passive = await collectPassiveSignals();
       const camera = await collectCameraSignals(video);
       const { faceImage, ...cam } = camera;
@@ -176,8 +206,13 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
           avgResponseMs: challenge.avgResponseMs,
           anomalies: challenge.anomalies,
         },
+        behavioral,
       };
-      const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals, faceImage }) });
+      const r = await fetch(`/api/candidate/${token}/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ clientSignals, faceImage, sessionFrames }),
+      });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Failed");
       setResult(j);
