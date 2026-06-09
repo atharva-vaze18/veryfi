@@ -15,6 +15,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   if (!v) return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   const signed = new Set(v.consents.map((c) => c.type));
   return NextResponse.json({
+    id: v.id,
     candidateName: v.candidateName,
     roleContext: v.roleContext,
     status: v.status,

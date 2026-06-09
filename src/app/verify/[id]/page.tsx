@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { BandBadge, RiskMeter, SignalRow } from "@/components/ui";
@@ -26,6 +27,7 @@ function Inner() {
   if (d.status !== "complete") {
     return (
       <div className="max-w-xl">
+        <Link href="/dashboard" className="text-muted hover:text-accent text-sm mb-4 inline-block">← Verifications</Link>
         <h1 className="font-display text-2xl text-ink mb-1">{d.candidateName}</h1>
         <p className="text-muted text-sm mb-6">Awaiting the candidate. Share the link below — results appear here once they complete the check.</p>
         <div className="panel p-5 space-y-3">
@@ -39,6 +41,7 @@ function Inner() {
 
   return (
     <div>
+      <Link href="/dashboard" className="text-muted hover:text-accent text-sm mb-4 inline-block">← Verifications</Link>
       <div className="flex items-start justify-between gap-4 mb-6 pb-5 border-b border-rule">
         <div>
           <div className="flex items-center gap-3">

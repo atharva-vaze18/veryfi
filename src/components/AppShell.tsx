@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-20 border-b border-rule bg-paper/90 backdrop-blur">
         <div className="mx-auto max-w-[1180px] px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link href="/dashboard"><Brand /></Link>
+            <Link href="/dashboard" className="hover:opacity-80 transition-opacity" title="Home"><Brand /></Link>
             <nav className="flex items-center gap-1">
               {nav.map((n) => {
                 const active = pathname === n.href;

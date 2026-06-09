@@ -35,7 +35,7 @@ export default function CandidateFlow() {
 }
 
 function Flow({ token, data, reload }: { token: string; data: any; reload: () => void }) {
-  if (data.complete) return <Done />;
+  if (data.complete) return <Done id={data.id} />;
   const nextConsent = data.consents.find((c: any) => !c.signed);
   if (nextConsent) return <ConsentStep key={nextConsent.type} token={token} doc={nextConsent} reload={reload} />;
   return <VerifyStep token={token} data={data} reload={reload} />;
@@ -166,7 +166,27 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
     } catch (e) { setErr((e as Error).message); setPhase("idle"); }
   }
 
-  if (result) return <Done />;
+  // Demo/test: submit a known AI-generated face instead of the live camera, to
+  // prove the deepfake detector actually flags a synthetic face.
+  async function runDeepfakeTest() {
+    setErr(null); setPhase("running");
+    try {
+      const blob = await (await fetch("/sample-ai-face.jpg")).blob();
+      const faceImage = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result as string);
+        fr.onerror = () => rej(new Error("Could not load sample"));
+        fr.readAsDataURL(blob);
+      });
+      const passive = await collectPassiveSignals();
+      const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals: passive, faceImage }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Failed");
+      setResult(j);
+    } catch (e) { setErr((e as Error).message); setPhase("idle"); }
+  }
+
+  if (result) return <Done id={data.id} />;
 
   if (needsIdv) {
     return (
@@ -235,6 +255,9 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
             {err && <div className="text-risk text-xs mb-3">{err}</div>}
             <button className="btn-primary w-full" onClick={runCheck}>Start check</button>
             <p className="text-[11px] text-muted mt-2">You should see your camera above. Click to run the one-time check.</p>
+            <button onClick={runDeepfakeTest} className="mt-3 text-[11px] text-muted hover:text-accent underline">
+              🧪 Demo: test with an AI-generated face
+            </button>
           </div>
         )}
       </div>
@@ -242,12 +265,15 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
   );
 }
 
-function Done() {
+function Done({ id }: { id?: string }) {
   return (
     <div className="animate-fade-up text-center py-8">
       <div className="text-5xl mb-4">✓</div>
       <h1 className="font-display text-2xl text-ink mb-2">All done</h1>
       <p className="text-sm text-muted">Thanks — your verification is complete. You can close this window. The hiring team will follow up.</p>
+      {id && (
+        <a href={`/verify/${id}`} className="inline-block mt-6 btn-ghost text-xs">View result (recruiter) →</a>
+      )}
     </div>
   );
 }

@@ -83,23 +83,25 @@ export function SignalRow({ s }: { s: Signal }) {
               <div className="space-y-1">
                 {models.map((m) => {
                   const manip = /manip/i.test(m.status);
+                  const pct = Math.round(m.score * 100); // score = probability the media is AI-generated
                   return (
                     <div key={m.name} className="flex items-center gap-2">
                       <span className="font-mono text-[10px] text-muted w-36 truncate">{m.name}</span>
                       <div className="flex-1 h-1.5 bg-paper-3 rounded overflow-hidden">
-                        <div className={`h-full ${manip ? "bg-risk" : "bg-pass"}`} style={{ width: `${Math.round(m.score * 100)}%` }} />
+                        <div className={`h-full ${manip ? "bg-risk" : "bg-pass"}`} style={{ width: `${pct}%` }} />
                       </div>
-                      <span className={`font-mono text-[10px] w-20 text-right ${manip ? "text-risk" : "text-pass"}`}>
-                        {Math.round(m.score * 100)}% {manip ? "fake" : "real"}
+                      <span className={`font-mono text-[10px] w-24 text-right ${manip ? "text-risk" : "text-pass"}`}>
+                        {pct}% fake
                       </span>
                     </div>
                   );
                 })}
               </div>
+              <p className="text-[10px] text-muted mt-1.5">Each bar = that model&rsquo;s probability the face is AI-generated. Green = authentic, red = flagged.</p>
               <div className="mt-2 pt-2 border-t border-rule/60 flex items-center justify-between">
-                {s.info?.requestId && <span className="font-mono text-[10px] text-muted">id {s.info.requestId.slice(0, 8)}…</span>}
-                <a href="https://app.realitydefender.com" target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline">
-                  Open in Reality Defender →
+                {s.info?.requestId && <span className="font-mono text-[10px] text-muted">RD id {s.info.requestId.slice(0, 8)}…</span>}
+                <a href="https://www.realitydefender.com" target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline">
+                  Powered by Reality Defender ↗
                 </a>
               </div>
             </div>

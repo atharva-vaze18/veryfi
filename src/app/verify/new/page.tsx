@@ -26,11 +26,12 @@ function Inner() {
   if (result) {
     return (
       <div className="max-w-xl">
+        <Link href="/dashboard" className="text-muted hover:text-accent text-sm mb-4 inline-block">← Verifications</Link>
         <h1 className="font-display text-3xl text-ink mb-2">Verification created</h1>
         <p className="text-muted text-sm mb-6">Send the candidate this private link. The check runs only after they consent — no data is collected until then.</p>
         <div className="panel p-5 space-y-3">
           <div className="label">Candidate link</div>
-          <code className="block font-mono text-xs bg-paper-3 border border-rule px-3 py-2 rounded break-all text-ink-2">{result.candidateLink}</code>
+          <a href={result.candidateLink} target="_blank" rel="noreferrer" className="block font-mono text-xs bg-paper-3 border border-rule px-3 py-2 rounded break-all text-accent hover:underline">{result.candidateLink}</a>
           <div className="flex gap-2 flex-wrap pt-1">
             <a href={result.candidateLink} target="_blank" rel="noreferrer" className="btn-primary">Open candidate flow →</a>
             <button className="btn-ghost" onClick={() => navigator.clipboard?.writeText(result.candidateLink)}>Copy link</button>
@@ -44,6 +45,7 @@ function Inner() {
 
   return (
     <div className="max-w-xl">
+      <Link href="/dashboard" className="text-muted hover:text-accent text-sm mb-4 inline-block">← Verifications</Link>
       <h1 className="font-display text-3xl text-ink mb-1">New verification</h1>
       <p className="text-muted text-sm mb-7">Just a name, work email, and the country they claim to be in. No SSN or records.</p>
       <form onSubmit={submit} className="panel p-5 space-y-4">
