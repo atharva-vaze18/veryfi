@@ -2,12 +2,23 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { env, features } from "@/lib/env";
-import { createIdvSession } from "@/adapters/identity";
+import { createIdvSession, fetchIdvResult } from "@/adapters/identity";
 import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const Body = z.object({ action: z.enum(["start"]) });
+
+// Polled by the embedded ID flow to detect when the candidate has finished.
+export async function GET(_req: Request, { params }: { params: { token: string } }) {
+  const v = await prisma.verification.findUnique({ where: { token: params.token } });
+  if (!v) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+  const result = await fetchIdvResult(v.idvSessionRef);
+  // terminal = candidate finished (passed or failed); "processing"/"skipped" = still going / not started
+  const done = result.status === "verified" || result.status === "requires_input";
+  return NextResponse.json({ status: result.status, done });
+}
 
 // Starts a REAL Stripe Identity session when configured. When not configured,
 // returns enabled:false and the candidate flow skips the ID step honestly.

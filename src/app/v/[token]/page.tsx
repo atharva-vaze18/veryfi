@@ -73,7 +73,13 @@ function ConsentStep({ token, doc, reload }: { token: string; doc: any; reload: 
         <span className="text-sm text-ink-2">I have read and {bio ? "provide my written consent to" : "agree to"} the above.</span>
       </label>
       <div className="mt-3"><label className="label block mb-1">Type your full name to sign</label>
-        <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full legal name" /></div>
+        <input
+          className="field"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && agreed && name.trim().length >= 2 && !busy) sign(); }}
+          placeholder="Full legal name"
+        /></div>
       {err && <div className="text-risk text-xs mt-2">{err}</div>}
       <button className="btn-primary w-full mt-4" disabled={!agreed || name.trim().length < 2 || busy} onClick={sign}>{busy ? "Recording…" : "Agree & continue"}</button>
       <p className="text-[11px] text-muted mt-3 text-center">Your consent, timestamp and IP are recorded.</p>
@@ -90,6 +96,19 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [idvUrl, setIdvUrl] = useState<string | null>(null);
+
+  // While the embedded ID flow is open, poll for completion and advance.
+  useEffect(() => {
+    if (!idvUrl) return;
+    const iv = setInterval(async () => {
+      try {
+        const j = await (await fetch(`/api/candidate/${token}/idv`)).json();
+        if (j.done) { clearInterval(iv); reload(); }
+      } catch { /* ignore */ }
+    }, 4000);
+    return () => clearInterval(iv);
+  }, [idvUrl, token, reload]);
 
   async function startIdv() {
     setBusy(true); setErr(null);
@@ -97,7 +116,7 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
       const r = await fetch(`/api/candidate/${token}/idv`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "start" }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Failed");
-      if (j.url) { window.location.href = j.url; return; }
+      if (j.url) { setIdvUrl(j.url); return; } // embed in-page instead of redirecting
       reload();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   }
@@ -126,11 +145,29 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
         <div className="label mb-1">Identity</div>
         <h1 className="font-display text-2xl text-ink mb-3">Verify your identity</h1>
         <p className="text-sm text-muted mb-4">A quick 1:1 check — your government ID matched to a live selfie. Verification only, never a 1:many search.</p>
-        <div className="panel p-6 text-center">
-          <div className="text-5xl mb-3">🪪</div>
-          {err && <div className="text-risk text-xs mb-3">{err}</div>}
-          <button className="btn-primary w-full" disabled={busy} onClick={startIdv}>{busy ? "Starting…" : "Verify ID"}</button>
-        </div>
+        {idvUrl ? (
+          <div className="panel p-2 overflow-hidden">
+            <iframe
+              src={idvUrl}
+              title="Identity verification"
+              allow="camera; microphone; fullscreen; autoplay; encrypted-media"
+              className="w-full rounded-md bg-white"
+              style={{ height: 560, border: "none" }}
+            />
+            <div className="flex items-center justify-between px-2 py-2">
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" /> Waiting for you to finish…
+              </span>
+              <button className="btn-ghost text-xs py-1.5" onClick={reload}>I&rsquo;ve finished →</button>
+            </div>
+          </div>
+        ) : (
+          <div className="panel p-6 text-center">
+            <div className="text-5xl mb-3">🪪</div>
+            {err && <div className="text-risk text-xs mb-3">{err}</div>}
+            <button className="btn-primary w-full" disabled={busy} onClick={startIdv}>{busy ? "Starting…" : "Verify ID"}</button>
+          </div>
+        )}
       </div>
     );
   }

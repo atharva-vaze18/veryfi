@@ -19,6 +19,12 @@ function Inner() {
     fetch("/api/verifications").then((r) => r.json()).then((d) => { setRows(d.verifications); setStats(d.stats); });
   }, []);
 
+  async function del(id: string, name: string) {
+    if (!confirm(`Delete the verification for ${name}? This permanently removes the profile and its result.`)) return;
+    const r = await fetch(`/api/verifications/${id}`, { method: "DELETE" });
+    if (r.ok) setRows((rs) => rs.filter((x) => x.id !== id));
+  }
+
   return (
     <div>
       <div className="flex items-end justify-between mb-6">
@@ -63,7 +69,10 @@ function Inner() {
                   <td className="px-5 py-3 text-xs text-muted">{r.status}</td>
                   <td className="px-5 py-3"><BandBadge band={r.band} /></td>
                   <td className="px-5 py-3 font-mono text-xs text-ink">{r.riskScore ?? "—"}</td>
-                  <td className="px-5 py-3 text-right"><Link href={`/verify/${r.id}`} className="text-accent text-sm">Open →</Link></td>
+                  <td className="px-5 py-3 text-right whitespace-nowrap">
+                    <Link href={`/verify/${r.id}`} className="text-accent text-sm">Open →</Link>
+                    <button onClick={() => del(r.id, r.candidateName)} className="ml-4 text-muted hover:text-risk text-sm" title="Delete profile">Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
