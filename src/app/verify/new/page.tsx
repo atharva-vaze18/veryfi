@@ -35,7 +35,7 @@ function Inner() {
           <div className="flex gap-2 flex-wrap pt-1">
             <a href={result.candidateLink} target="_blank" rel="noreferrer" className="btn-primary">Open candidate flow →</a>
             <button className="btn-ghost" onClick={() => navigator.clipboard?.writeText(result.candidateLink)}>Copy link</button>
-            <Link href={`/verify/${result.id}`} className="btn-ghost">View result</Link>
+            <a href={`/verify/${result.id}`} target="_blank" rel="noreferrer" className="btn-ghost">View result (pending) →</a>
           </div>
         </div>
         <p className="text-muted text-xs mt-4">Tip: paste this into your interview invite, or have the candidate complete it at the start of the call.</p>

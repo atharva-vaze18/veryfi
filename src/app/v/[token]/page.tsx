@@ -166,25 +166,6 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
     } catch (e) { setErr((e as Error).message); setPhase("idle"); }
   }
 
-  // Demo/test: submit a known AI-generated face instead of the live camera, to
-  // prove the deepfake detector actually flags a synthetic face.
-  async function runDeepfakeTest() {
-    setErr(null); setPhase("running");
-    try {
-      const blob = await (await fetch("/sample-ai-face.jpg")).blob();
-      const faceImage = await new Promise<string>((res, rej) => {
-        const fr = new FileReader();
-        fr.onload = () => res(fr.result as string);
-        fr.onerror = () => rej(new Error("Could not load sample"));
-        fr.readAsDataURL(blob);
-      });
-      const passive = await collectPassiveSignals();
-      const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals: passive, faceImage }) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "Failed");
-      setResult(j);
-    } catch (e) { setErr((e as Error).message); setPhase("idle"); }
-  }
 
   if (result) return <Done id={data.id} />;
 
@@ -255,9 +236,6 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
             {err && <div className="text-risk text-xs mb-3">{err}</div>}
             <button className="btn-primary w-full" onClick={runCheck}>Start check</button>
             <p className="text-[11px] text-muted mt-2">You should see your camera above. Click to run the one-time check.</p>
-            <button onClick={runDeepfakeTest} className="mt-3 text-[11px] text-muted hover:text-accent underline">
-              🧪 Demo: test with an AI-generated face
-            </button>
           </div>
         )}
       </div>
