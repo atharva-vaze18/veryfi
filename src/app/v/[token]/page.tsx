@@ -96,7 +96,9 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [idvUrl, setIdvUrl] = useState<string | null>(null);
+  const onCameraStep = !result && !needsIdv;
 
   // While the embedded ID flow is open, poll for completion and advance.
   useEffect(() => {
@@ -110,6 +112,26 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
     return () => clearInterval(iv);
   }, [idvUrl, token, reload]);
 
+  // Keep a live camera preview running the whole time we're on the camera step
+  // (so the candidate always sees their face, including during the slow analysis).
+  useEffect(() => {
+    if (!onCameraStep) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+        if (cancelled) { s.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = s;
+        if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play().catch(() => {}); }
+      } catch { /* permission prompt declined; Start will retry */ }
+    })();
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, [onCameraStep]);
+
   async function startIdv() {
     setBusy(true); setErr(null);
     try {
@@ -122,12 +144,19 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
   }
 
   async function runCheck() {
-    setPhase("running"); setErr(null);
-    // let the running-phase UI (with the <video> preview) mount first
-    await new Promise((r) => setTimeout(r, 80));
+    setErr(null);
     try {
+      // ensure the camera is live (the preview effect normally already started it)
+      if (!streamRef.current) {
+        const s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+        streamRef.current = s;
+        if (videoRef.current) { videoRef.current.srcObject = s; await videoRef.current.play().catch(() => {}); }
+      }
+      const video = videoRef.current;
+      if (!video) throw new Error("Camera not available");
+      setPhase("running");
       const passive = await collectPassiveSignals();
-      const camera = await collectCameraSignals(videoRef.current);
+      const camera = await collectCameraSignals(video);
       const { faceImage, ...cam } = camera;
       const clientSignals = { ...passive, ...cam };
       const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals, faceImage }) });
@@ -176,36 +205,37 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
     <div className="animate-fade-up">
       <div className="label mb-1">Live check</div>
       <h1 className="font-display text-2xl text-ink mb-3">Quick camera check</h1>
-      <p className="text-sm text-muted mb-4">We&rsquo;ll briefly access your camera to confirm a real, present person and check your connection for impersonation signals. ~10 seconds. Nothing is recorded or stored — only a pass/fail result.</p>
-      <div className="panel p-6 text-center">
-        {phase === "running" ? (
-          <div className="py-2">
-            {/* live camera preview so the candidate sees what's being captured */}
-            <div className="relative mx-auto mb-4 w-full max-w-[280px] aspect-[4/3] overflow-hidden rounded-lg border border-rule bg-paper-3">
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                className="h-full w-full object-cover"
-                style={{ transform: "scaleX(-1)" }}
-              />
-              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-paper/80 px-2.5 py-1 backdrop-blur">
-                <span className="h-1.5 w-1.5 rounded-full bg-risk animate-pulse" />
-                <span className="font-mono text-[10px] uppercase tracking-wider text-ink">analyzing</span>
-              </div>
+      <p className="text-sm text-muted mb-4">We&rsquo;ll access your camera to confirm a real, present person and check your connection for impersonation signals. Nothing is stored — only a pass/fail result.</p>
+      <div className="panel p-5">
+        {/* live camera preview — always visible on this step */}
+        <div className="relative mx-auto mb-4 w-full max-w-[300px] aspect-[4/3] overflow-hidden rounded-lg border border-rule bg-paper-3">
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            className="h-full w-full object-cover"
+            style={{ transform: "scaleX(-1)" }}
+          />
+          {phase === "running" && (
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full bg-paper/80 px-2.5 py-1 backdrop-blur">
+              <span className="h-1.5 w-1.5 rounded-full bg-risk animate-pulse" />
+              <span className="font-mono text-[10px] uppercase tracking-wider text-ink">analyzing</span>
             </div>
+          )}
+        </div>
+        {phase === "running" ? (
+          <div className="text-center">
             <div className="mx-auto h-7 w-7 rounded-full border-2 border-accent border-t-transparent animate-spin mb-2" />
             <p className="text-sm text-ink">Checking camera, connection &amp; running deepfake analysis…</p>
             <p className="text-xs text-muted mt-1">Look at the camera. This can take up to a minute — please don&rsquo;t close the window.</p>
           </div>
         ) : (
-          <>
-            <div className="text-5xl mb-3">🎥</div>
+          <div className="text-center">
             {err && <div className="text-risk text-xs mb-3">{err}</div>}
             <button className="btn-primary w-full" onClick={runCheck}>Start check</button>
-            <p className="text-[11px] text-muted mt-3">By continuing you allow a one-time camera + connection check.</p>
-          </>
+            <p className="text-[11px] text-muted mt-2">You should see your camera above. Click to run the one-time check.</p>
+          </div>
         )}
       </div>
     </div>

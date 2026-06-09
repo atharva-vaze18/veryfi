@@ -58,6 +58,7 @@ const SEV = { pass: "text-pass", info: "text-muted", warn: "text-review", risk: 
 const DOT = { pass: "bg-pass", info: "bg-muted", warn: "bg-review", risk: "bg-risk" } as const;
 
 export function SignalRow({ s }: { s: Signal }) {
+  const models = s.info?.models ?? [];
   return (
     <div className="flex items-start gap-3 py-2.5 border-b border-rule/60 last:border-0">
       <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${s.evaluated ? DOT[s.severity] : "bg-rule"}`} />
@@ -67,6 +68,43 @@ export function SignalRow({ s }: { s: Signal }) {
           <span className={`font-mono text-xs ${s.evaluated ? SEV[s.severity] : "text-muted"}`}>{s.value}</span>
         </div>
         <p className="text-xs text-muted leading-snug mt-0.5">{s.detail}</p>
+
+        {/* Deepfake insights — per-model breakdown + link to the provider */}
+        {models.length > 0 && (
+          <details className="mt-2 group">
+            <summary className="cursor-pointer list-none inline-flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-accent hover:underline">
+              <span>View analysis ({models.length} models)</span>
+              <span className="transition-transform group-open:rotate-90">›</span>
+            </summary>
+            <div className="mt-2 rounded-md border border-rule bg-paper-3/40 p-2">
+              <p className="text-[11px] text-muted mb-2">
+                {models.filter((m) => /manip/i.test(m.status)).length} of {models.length} AI models flagged this image as manipulated. Higher score = more likely AI-generated.
+              </p>
+              <div className="space-y-1">
+                {models.map((m) => {
+                  const manip = /manip/i.test(m.status);
+                  return (
+                    <div key={m.name} className="flex items-center gap-2">
+                      <span className="font-mono text-[10px] text-muted w-36 truncate">{m.name}</span>
+                      <div className="flex-1 h-1.5 bg-paper-3 rounded overflow-hidden">
+                        <div className={`h-full ${manip ? "bg-risk" : "bg-pass"}`} style={{ width: `${Math.round(m.score * 100)}%` }} />
+                      </div>
+                      <span className={`font-mono text-[10px] w-20 text-right ${manip ? "text-risk" : "text-pass"}`}>
+                        {Math.round(m.score * 100)}% {manip ? "fake" : "real"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 pt-2 border-t border-rule/60 flex items-center justify-between">
+                {s.info?.requestId && <span className="font-mono text-[10px] text-muted">id {s.info.requestId.slice(0, 8)}…</span>}
+                <a href="https://app.realitydefender.com" target="_blank" rel="noreferrer" className="text-[11px] text-accent hover:underline">
+                  Open in Reality Defender →
+                </a>
+              </div>
+            </div>
+          </details>
+        )}
       </div>
       {s.evaluated && s.points !== 0 && (
         <span className={`font-mono text-[11px] shrink-0 ${s.points > 0 ? "text-risk" : "text-pass"}`}>

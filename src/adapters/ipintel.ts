@@ -49,8 +49,29 @@ function isPrivate(ip: string): boolean {
   );
 }
 
+// Resolves this server's public egress IP — used only for LOCAL DEV, where the
+// candidate connects over loopback (127.0.0.1) so there's no candidate IP to
+// analyze. In production the candidate's real public IP arrives via x-forwarded-for
+// and this path never runs.
+async function publicEgressIp(): Promise<string | null> {
+  try {
+    const res = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { ip?: string };
+    return j.ip ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getIpIntel(ip: string): Promise<IpIntel> {
-  if (isPrivate(ip)) return { ...empty(ip), provider: "local", evaluated: false };
+  if (isPrivate(ip)) {
+    // Local dev: substitute this machine's real public IP so the signals evaluate.
+    const egress = await publicEgressIp();
+    if (!egress || isPrivate(egress)) return { ...empty(ip), provider: "local", evaluated: false };
+    const r = await getIpIntel(egress);
+    return { ...r, provider: `${r.provider} · local dev (this machine's IP)` };
+  }
 
   // Preferred when set: proxycheck.io — real VPN/proxy/datacenter, friendly free
   // tier (1,000/day) with no aggressive duplicate-account lockout.

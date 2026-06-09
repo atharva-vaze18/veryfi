@@ -30,6 +30,12 @@ export interface Signal {
   triggered: boolean;
   evaluated: boolean;
   severity: Severity;
+  // Optional rich detail (e.g. deepfake per-model breakdown + provider link).
+  info?: {
+    models?: Array<{ name: string; status: string; score: number }>;
+    requestId?: string;
+    provider?: string;
+  };
 }
 
 export interface Verdict {
@@ -190,8 +196,10 @@ export function computeVerdict(input: {
     const p = input.deepfake.syntheticProbability;
     const manipulated = p >= 0.6;
     if (p >= 0.7) deepfakeOverride = true;
-    s.push(sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% AI-generated`, manipulated ? 50 : -6, manipulated, true,
-      manipulated ? "risk" : "pass", input.deepfake.note));
+    const df = sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% AI-generated`, manipulated ? 50 : -6, manipulated, true,
+      manipulated ? "risk" : "pass", input.deepfake.note);
+    df.info = { models: input.deepfake.models, requestId: input.deepfake.requestId, provider: input.deepfake.provider };
+    s.push(df);
   } else {
     s.push(sig("deepfake", "Deepfake content analysis", "not evaluated", 0, false, false, "info", input.deepfake.note));
   }

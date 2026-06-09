@@ -42,32 +42,21 @@ const VCAM = /obs|virtual|manycam|snap\s*camera|xsplit|droidcam|epoccam|e2esoft|
 // static-photo (motion) liveness check, and captures a frame for deepfake
 // analysis. If a preview <video> element is passed, the live feed is shown in it
 // so the candidate can see what's being captured.
-export async function collectCameraSignals(previewEl?: HTMLVideoElement | null): Promise<CameraSignals> {
+// Collects camera signals from an already-running preview <video>. Does NOT own
+// the stream — the caller (component) starts/stops it, so the live feed stays
+// visible to the candidate the entire time (including during the slow analysis).
+export async function collectCameraSignals(video: HTMLVideoElement): Promise<CameraSignals> {
   const out: CameraSignals = { cameraLabels: [], virtualCameraLabels: [], livenessRan: false, livenessMotion: false };
-  let stream: MediaStream | null = null;
-  let hiddenVideo: HTMLVideoElement | null = null;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
-    const video = previewEl ?? (hiddenVideo = document.createElement("video"));
-    video.muted = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-    await video.play().catch(() => {});
     await waitForFrame(video);
-
     const devices = await navigator.mediaDevices.enumerateDevices();
     out.cameraLabels = devices.filter((d) => d.kind === "videoinput").map((d) => d.label).filter(Boolean);
     out.virtualCameraLabels = out.cameraLabels.filter((l) => VCAM.test(l));
-
-    out.livenessMotion = await measureMotion(video); // ~1.9s of live preview
+    out.livenessMotion = await measureMotion(video);
     out.livenessRan = true;
-    out.faceImage = captureFrame(video); // single still frame for Reality Defender
+    out.faceImage = captureFrame(video);
   } catch (e) {
     out.error = (e as Error).message;
-  } finally {
-    stream?.getTracks().forEach((t) => t.stop());
-    if (previewEl) try { previewEl.srcObject = null; } catch { /* ignore */ }
-    if (hiddenVideo) hiddenVideo.srcObject = null;
   }
   return out;
 }

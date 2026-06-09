@@ -6,11 +6,19 @@ import { env, features } from "@/lib/env";
 // the specialist signal that catches a deepfaked face in the interview itself.
 // When no provider is configured (or no frame was captured), it honestly reports
 // "not evaluated" and does not move the score.
+export interface DeepfakeModel {
+  name: string;
+  status: string;
+  score: number;
+}
+
 export interface DeepfakeResult {
   evaluated: boolean;
   provider: string;
   syntheticProbability: number | null; // 0..1, higher = more likely AI-generated
   status?: string; // RD: "MANIPULATED" | "AUTHENTIC" | ...
+  requestId?: string; // RD request id (look up in the RD dashboard)
+  models?: DeepfakeModel[]; // per-model breakdown (the "why")
   note: string;
 }
 
@@ -28,7 +36,7 @@ export async function scoreDeepfake(filePath?: string | null): Promise<DeepfakeR
     const result = (await Promise.race([
       rd.detect({ filePath }),
       new Promise((_, reject) => setTimeout(() => reject(new Error("RD timeout")), 45_000)),
-    ])) as { status?: string; score?: number };
+    ])) as { status?: string; score?: number; requestId?: string; models?: DeepfakeModel[] };
 
     const score = typeof result.score === "number" ? result.score : null;
     return {
@@ -36,6 +44,8 @@ export async function scoreDeepfake(filePath?: string | null): Promise<DeepfakeR
       provider: "Reality Defender",
       syntheticProbability: score,
       status: result.status,
+      requestId: result.requestId,
+      models: Array.isArray(result.models) ? result.models : undefined,
       note: `RD analysis: ${result.status ?? "completed"}${score != null ? ` (${Math.round(score * 100)}% manipulated)` : ""}.`,
     };
   } catch (e) {
