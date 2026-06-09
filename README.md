@@ -38,12 +38,14 @@ Full setup: [`docs/API_SETUP.md`](docs/API_SETUP.md).
 ```bash
 cp .env.example .env        # works as-is; add keys later
 npm install
-npm run db:push             # creates the SQLite database
-npm run db:seed             # starter recruiter account
+npm run db:push             # creates the database
 npm run dev                 # http://localhost:3100
 ```
 
-Sign in: **demo@orbyt.test** / **verify-demo-1234** (change before going live).
+Open the app and click **Create account** — that makes your company + owner login
+(self-serve, no demo credentials). Add teammates under **Team**; manage plan/usage
+under **Billing**. (Optional: seed the first admin non-interactively with
+`ADMIN_ORG=… ADMIN_EMAIL=… ADMIN_PASSWORD=… npm run db:seed`.)
 
 **Try it:** create a verification → open the candidate link (incognito) → consent → run the camera check. Your real signals are scored live. To see a high-risk result, open the candidate link with a VPN on, or in a headless/automation browser.
 

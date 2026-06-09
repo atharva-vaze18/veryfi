@@ -11,13 +11,15 @@ function Inner() {
   const [f, setF] = useState({ candidateName: "", candidateEmail: "", roleContext: "", declaredCountry: "US" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [quotaHit, setQuotaHit] = useState(false);
   const [result, setResult] = useState<{ candidateLink: string; id: string } | null>(null);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
   async function submit(e: React.FormEvent) {
-    e.preventDefault(); setErr(null); setBusy(true);
+    e.preventDefault(); setErr(null); setQuotaHit(false); setBusy(true);
     try {
       const r = await fetch("/api/verifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) });
+      if (r.status === 402) { const j = await r.json().catch(() => ({})); setQuotaHit(true); throw new Error(j.error ?? "Monthly limit reached."); }
       if (!r.ok) throw new Error("Could not create verification");
       setResult(await r.json());
     } catch (e2) { setErr((e2 as Error).message); } finally { setBusy(false); }
@@ -53,7 +55,11 @@ function Inner() {
         <div><label className="label block mb-1">Candidate email</label><input className="field" type="email" required value={f.candidateEmail} onChange={set("candidateEmail")} /></div>
         <div><label className="label block mb-1">Role / context (optional)</label><input className="field" placeholder="Senior Backend Engineer — remote contractor" value={f.roleContext} onChange={set("roleContext")} /></div>
         <div><label className="label block mb-1">Declared country (ISO-2)</label><input className="field max-w-[140px]" value={f.declaredCountry} onChange={set("declaredCountry")} maxLength={2} /></div>
-        {err && <div className="text-risk text-xs border border-risk/30 bg-risk/5 px-3 py-2 rounded">{err}</div>}
+        {err && (
+          <div className="text-risk text-xs border border-risk/30 bg-risk/5 px-3 py-2 rounded">
+            {err}{quotaHit && <> <Link href="/settings/billing" className="underline">Upgrade your plan →</Link></>}
+          </div>
+        )}
         <button className="btn-primary" disabled={busy}>{busy ? "Creating…" : "Create & generate link"}</button>
       </form>
     </div>

@@ -10,6 +10,10 @@ export const env = {
   PROXYCHECK_API_KEY: process.env.PROXYCHECK_API_KEY ?? "",
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? "",
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  // Subscription billing (e-commerce). Recurring Stripe Price ids per plan.
+  STRIPE_PRICE_STARTER: process.env.STRIPE_PRICE_STARTER ?? "",
+  STRIPE_PRICE_SCALE: process.env.STRIPE_PRICE_SCALE ?? "",
+  SALES_EMAIL: process.env.SALES_EMAIL ?? "sales@orbyt.io",
   DIDIT_API_KEY: process.env.DIDIT_API_KEY ?? "",
   DIDIT_WORKFLOW_ID: process.env.DIDIT_WORKFLOW_ID ?? "",
   REALITY_DEFENDER_API_KEY: process.env.REALITY_DEFENDER_API_KEY ?? "",
@@ -23,4 +27,7 @@ export const features = {
   didit: env.DIDIT_API_KEY.length > 0 && env.DIDIT_WORKFLOW_ID.length > 0, // real ID + selfie + liveness (free)
   stripeIdentity: env.STRIPE_SECRET_KEY.length > 0, // real ID + selfie + liveness (~$1.50)
   realityDefender: env.REALITY_DEFENDER_API_KEY.length > 0, // real deepfake content scoring
+  // Subscription billing turns ON when a secret key + at least one plan price exist.
+  // When OFF, usage metering is not enforced (so you can run/sell before wiring Stripe).
+  billing: env.STRIPE_SECRET_KEY.length > 0 && (env.STRIPE_PRICE_STARTER.length > 0 || env.STRIPE_PRICE_SCALE.length > 0),
 };

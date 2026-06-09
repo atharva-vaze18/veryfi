@@ -10,10 +10,15 @@ const FEATURES = [
   ["Fraud signals, not a background check", "No SSN, no records, no consumer report. You get a risk score; you make the call."],
 ];
 
+type Mode = "signin" | "signup";
+
 export default function Landing() {
   const router = useRouter();
-  const [email, setEmail] = useState("demo@orbyt.test");
-  const [password, setPassword] = useState("verify-demo-1234");
+  const [mode, setMode] = useState<Mode>("signin");
+  const [orgName, setOrgName] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -25,8 +30,10 @@ export default function Landing() {
     e.preventDefault();
     setErr(null); setBusy(true);
     try {
-      const r = await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
-      if (!r.ok) throw new Error((await r.json()).error ?? "Login failed");
+      const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
+      const body = mode === "signup" ? { orgName, name, email, password } : { email, password };
+      const r = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error((await r.json()).error ?? (mode === "signup" ? "Sign up failed" : "Login failed"));
       router.replace("/dashboard");
     } catch (e2) { setErr((e2 as Error).message); } finally { setBusy(false); }
   }
@@ -69,17 +76,35 @@ export default function Landing() {
 
       <div className="px-8 lg:px-12 py-12 flex items-center">
         <div className="w-full max-w-sm mx-auto">
-          <h2 className="font-display text-2xl mb-1 text-ink">Sign in</h2>
-          <p className="text-muted text-sm mb-7">Recruiter / security console.</p>
+          <div className="flex gap-1 p-1 rounded-lg bg-paper-3 border border-rule mb-6 text-sm">
+            <button type="button" onClick={() => { setMode("signin"); setErr(null); }}
+              className={`flex-1 py-1.5 rounded-md transition-colors ${mode === "signin" ? "bg-paper text-ink shadow-sm" : "text-muted hover:text-ink"}`}>Sign in</button>
+            <button type="button" onClick={() => { setMode("signup"); setErr(null); }}
+              className={`flex-1 py-1.5 rounded-md transition-colors ${mode === "signup" ? "bg-paper text-ink shadow-sm" : "text-muted hover:text-ink"}`}>Create account</button>
+          </div>
+          <h2 className="font-display text-2xl mb-1 text-ink">{mode === "signup" ? "Start verifying" : "Welcome back"}</h2>
+          <p className="text-muted text-sm mb-7">{mode === "signup" ? "Free plan — 25 verifications/month, no card required." : "Recruiter / security console."}</p>
           <form onSubmit={submit} className="space-y-3">
-            <div><label className="label block mb-1">Email</label>
-              <input className="field" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" /></div>
+            {mode === "signup" && (
+              <>
+                <div><label className="label block mb-1">Company</label>
+                  <input className="field" value={orgName} onChange={(e) => setOrgName(e.target.value)} placeholder="Acme Inc." autoComplete="organization" /></div>
+                <div><label className="label block mb-1">Your name</label>
+                  <input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jordan Lee" autoComplete="name" /></div>
+              </>
+            )}
+            <div><label className="label block mb-1">Work email</label>
+              <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete={mode === "signup" ? "email" : "username"} /></div>
             <div><label className="label block mb-1">Password</label>
-              <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></div>
+              <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} placeholder={mode === "signup" ? "8+ characters" : ""} /></div>
             {err && <div className="text-risk text-xs border border-risk/30 bg-risk/5 px-3 py-2 rounded">{err}</div>}
-            <button className="btn-primary w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+            <button className="btn-primary w-full" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account →" : "Sign in"}</button>
           </form>
-          <div className="mt-6 label">Demo account is pre-filled · run <span className="text-ink-3">npm run db:seed</span></div>
+          <div className="mt-6 text-xs text-muted">
+            {mode === "signup"
+              ? <>Already have an account? <button onClick={() => setMode("signin")} className="text-accent">Sign in</button></>
+              : <>New here? <button onClick={() => setMode("signup")} className="text-accent">Create an account</button></>}
+          </div>
         </div>
       </div>
     </div>

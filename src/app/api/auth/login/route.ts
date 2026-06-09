@@ -10,10 +10,11 @@ const Body = z.object({ email: z.string().email(), password: z.string().min(1) }
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
-  const user = await prisma.user.findUnique({ where: { email: parsed.data.email }, include: { org: true } });
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email.toLowerCase() }, include: { org: true } });
   if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   const session = { userId: user.id, orgId: user.orgId, email: user.email, name: user.name, role: user.role };
   setSessionCookie(signSession(session));
   return NextResponse.json({ user: { ...session, orgName: user.org.name } });

@@ -21,7 +21,14 @@ Put both URLs in your local `.env`:
 cd /Users/vazea/Desktop/orbyt-verify
 # (edit .env: set DATABASE_URL and DIRECT_URL to the Supabase values)
 npx prisma db push     # creates all tables in Supabase
-npm run db:seed        # creates your login: demo@orbyt.test / verify-demo-1234
+```
+There are **no demo accounts** — the app is self-serve. Real users sign up at the
+landing page (`Create account`), which creates their company + owner login. They
+can then add teammates under **Team**.
+
+If you want to seed the very first admin yourself (optional), run once:
+```bash
+ADMIN_ORG="Your Co" ADMIN_EMAIL="you@yourco.com" ADMIN_PASSWORD="a-strong-pass" npm run db:seed
 ```
 Now `npm run dev` also works locally against Supabase.
 
@@ -45,16 +52,51 @@ git branch -M main && git push -u origin main
    |---|---|
    | `DATABASE_URL` | Supabase pooler URL (6543, `?pgbouncer=true`) |
    | `DIRECT_URL` | Supabase direct URL (5432) |
-   | `JWT_SECRET` | `openssl rand -hex 32` |
+   | `JWT_SECRET` | `openssl rand -hex 32` (**required**) |
    | `APP_URL` | `https://YOUR-APP.vercel.app` (update after first deploy) |
    | `PROXYCHECK_API_KEY` | your proxycheck key |
-   | `STRIPE_SECRET_KEY` | your `sk_live_…` (or `sk_test_…` to start) |
-   | `REALITY_DEFENDER_API_KEY` | optional |
+   | `DIDIT_API_KEY` / `DIDIT_WORKFLOW_ID` | optional — real ID + liveness |
+   | `REALITY_DEFENDER_API_KEY` | optional — deepfake scoring |
    | `BIOMETRIC_RETENTION_DAYS` | `30` |
+   | `STRIPE_SECRET_KEY` | for billing + (optionally) Stripe Identity |
+   | `STRIPE_WEBHOOK_SECRET` | from the webhook you create in Step 5 |
+   | `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_SCALE` | your recurring Price IDs |
 
 3. **Deploy.** After it finishes, copy the real URL and set `APP_URL` to it (candidate links + Stripe return URLs use it), then redeploy.
 
 Done — your app is live at `https://YOUR-APP.vercel.app`. Camera works (Vercel is HTTPS).
+
+---
+
+## Step 5 — Turn on paid plans (Stripe billing) — optional but this is the "sellable" part
+
+The app runs **unmetered** until you wire Stripe, so you can launch a free beta first.
+When you're ready to charge:
+
+1. **Stripe → Products.** Create two products with a **monthly recurring price** each:
+   - *Starter* (e.g. $149/mo) → copy its Price ID (`price_…`) → `STRIPE_PRICE_STARTER`
+   - *Scale* (e.g. $599/mo) → copy its Price ID → `STRIPE_PRICE_SCALE`
+   - (Prices/quotas are display + limits set in `src/lib/plans.ts` — change freely.)
+2. **Stripe → Developers → API keys.** Copy the **Secret key** → `STRIPE_SECRET_KEY`.
+3. **Stripe → Developers → Webhooks → Add endpoint:**
+   - URL: `https://YOUR-APP.vercel.app/api/stripe/webhook`
+   - Events: `checkout.session.completed`, `customer.subscription.created`,
+     `customer.subscription.updated`, `customer.subscription.deleted`
+   - Copy the **Signing secret** (`whsec_…`) → `STRIPE_WEBHOOK_SECRET`.
+4. **Redeploy.** Now the Billing page shows real **Upgrade** buttons → Stripe Checkout →
+   the subscription syncs the org's plan + monthly quota automatically. Once a plan's
+   monthly verification quota is hit, new verifications are blocked with an upgrade prompt.
+5. **Customer portal** (so customers can change card / cancel): Stripe → Settings →
+   Billing → Customer portal → **Activate**. The in-app "Manage subscription" button uses it.
+
+**How metering works:** billing enforcement turns on only when `STRIPE_SECRET_KEY` **and**
+at least one `STRIPE_PRICE_*` are set (`features.billing`). Until then every org is
+unmetered. Quota = `Org.monthlyQuota` (set from the plan); usage = verifications created
+since the 1st of the month. The webhook is the source of truth — the client can't change
+its own plan.
+
+> The **same** `STRIPE_SECRET_KEY` also powers the optional Stripe Identity ID-check.
+> Billing and Identity are independent features that happen to share the key.
 
 ---
 

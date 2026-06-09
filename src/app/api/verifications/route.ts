@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
+import { usageStatus } from "@/lib/billing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +53,16 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
   const parsed = Create.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+
+  // Usage metering: block once the org is over its monthly quota (only enforced
+  // when billing is configured — see features.billing).
+  const usage = await usageStatus(session.orgId);
+  if (usage.blocked) {
+    return NextResponse.json(
+      { error: `Monthly limit reached (${usage.usage}/${usage.quota} on the ${usage.plan} plan). Upgrade to keep verifying.`, code: "quota_exceeded", usage },
+      { status: 402 },
+    );
+  }
 
   const v = await prisma.verification.create({
     data: {
