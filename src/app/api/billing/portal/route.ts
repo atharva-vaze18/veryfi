@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { stripe } from "@/lib/billing";
-import { env } from "@/lib/env";
+import { env, isSuperAdmin } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   const session = getSession();
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-  if (session.role !== "owner" && session.role !== "admin") {
+  if (session.role !== "owner" && session.role !== "admin" && !isSuperAdmin(session.email)) {
     return NextResponse.json({ error: "Only owners and admins can manage billing." }, { status: 403 });
   }
   const s = stripe();

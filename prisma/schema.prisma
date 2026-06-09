@@ -42,6 +42,9 @@ model User {
   role         String   @default("member") // owner | admin | member
   createdAt    DateTime @default(now())
   lastLoginAt  DateTime?
+  // Password reset: a single active, hashed, expiring token per user.
+  resetTokenHash String?
+  resetExpiresAt DateTime?
 
   org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -68,9 +71,13 @@ model Verification {
   idvStatus     String?  // verified | requires_input | skipped | error
   idvProvider   String?
   idvSessionRef String?  // vendor session id (Stripe Identity)
+  idName        String?  // full name extracted from the government ID (for name-match)
   selfieMatch   Float?
   livenessPassed Boolean?
   observedCountry String?
+  // Deepfake analysis is async (RD upload -> poll). While this is set, the result
+  // page finalizes the deepfake signal on poll. Cleared once resolved/given up.
+  deepfakeRequestId String?
 
   createdAt   DateTime  @default(now())
   completedAt DateTime?

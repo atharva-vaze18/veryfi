@@ -23,6 +23,12 @@ export const env = {
   // the candidate submit always returns. On Vercel Pro, raise this to ~45000 and
   // bump `maxDuration` in the submit route to 60 to let Reality Defender finish.
   DEEPFAKE_TIMEOUT_MS: Number(process.env.DEEPFAKE_TIMEOUT_MS ?? "8000"),
+  // Super-admin: this account always has owner powers, unlimited quota, and can't
+  // be removed or walled. Comma-separated emails; defaults to the founder.
+  SUPERADMIN_EMAILS: (process.env.SUPERADMIN_EMAILS ?? "vaze.atharva18@gmail.com").toLowerCase(),
+  // Transactional email (password reset). Resend is simplest; optional.
+  RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
+  EMAIL_FROM: process.env.EMAIL_FROM ?? "Orbyt Verify <onboarding@resend.dev>",
 };
 
 export const features = {
@@ -32,7 +38,14 @@ export const features = {
   didit: env.DIDIT_API_KEY.length > 0 && env.DIDIT_WORKFLOW_ID.length > 0, // real ID + selfie + liveness (free)
   stripeIdentity: env.STRIPE_SECRET_KEY.length > 0, // real ID + selfie + liveness (~$1.50)
   realityDefender: env.REALITY_DEFENDER_API_KEY.length > 0, // real deepfake content scoring
-  // Subscription billing turns ON when a secret key + at least one plan price exist.
-  // When OFF, usage metering is not enforced (so you can run/sell before wiring Stripe).
-  billing: env.STRIPE_SECRET_KEY.length > 0 && (env.STRIPE_PRICE_STARTER.length > 0 || env.STRIPE_PRICE_SCALE.length > 0),
+  // Usage metering is ALWAYS on — every org has a monthly quota that is tracked and
+  // enforced regardless of Stripe (the tier wall works out of the box).
+  // Stripe only gates self-serve UPGRADES (paying to raise the quota).
+  stripeBilling: env.STRIPE_SECRET_KEY.length > 0 && (env.STRIPE_PRICE_STARTER.length > 0 || env.STRIPE_PRICE_SCALE.length > 0),
+  email: env.RESEND_API_KEY.length > 0,
 };
+
+const SUPERADMINS = new Set(env.SUPERADMIN_EMAILS.split(",").map((e) => e.trim()).filter(Boolean));
+export function isSuperAdmin(email: string | null | undefined): boolean {
+  return !!email && SUPERADMINS.has(email.toLowerCase());
+}

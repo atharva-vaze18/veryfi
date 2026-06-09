@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { prisma } from "./db";
-import { env, features } from "./env";
+import { env, isSuperAdmin } from "./env";
 import { planFor } from "./plans";
 
 // Single Stripe client, created lazily and only when configured.
@@ -20,24 +20,28 @@ export interface UsageStatus {
   usage: number;       // verifications created this month
   quota: number;       // included this month
   plan: string;
-  metered: boolean;    // is billing enforcement active?
+  metered: boolean;    // is a quota enforced? (false only for super-admin / unlimited)
   blocked: boolean;    // would the next verification be blocked?
   remaining: number;
+  unlimited: boolean;
 }
 
-export async function usageStatus(orgId: string): Promise<UsageStatus> {
+// Usage metering is ALWAYS on. Pass the requesting user's email so super-admins
+// get unlimited usage (never blocked).
+export async function usageStatus(orgId: string, email?: string | null): Promise<UsageStatus> {
   const org = await prisma.org.findUnique({ where: { id: orgId } });
   const quota = org?.monthlyQuota ?? planFor(org?.plan ?? "free").monthlyQuota;
   const usage = await prisma.verification.count({
     where: { orgId, createdAt: { gte: monthStart() } },
   });
-  const metered = features.billing;
+  const unlimited = isSuperAdmin(email);
   return {
     usage,
     quota,
-    plan: org?.plan ?? "free",
-    metered,
-    blocked: metered && usage >= quota,
-    remaining: Math.max(0, quota - usage),
+    plan: unlimited ? "unlimited" : org?.plan ?? "free",
+    metered: !unlimited,
+    blocked: !unlimited && usage >= quota,
+    remaining: unlimited ? Number.MAX_SAFE_INTEGER : Math.max(0, quota - usage),
+    unlimited,
   };
 }

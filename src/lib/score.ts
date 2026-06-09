@@ -88,6 +88,8 @@ export function detectVirtualCameras(labels: string[]): string[] {
 
 export function computeVerdict(input: {
   declaredCountry: string;
+  declaredName?: string;
+  idvAvailable?: boolean; // is an IDV provider configured? (distinguishes "skipped by candidate" from "not configured")
   ip: IpIntel;
   email: EmailRisk;
   idv: IdvResult;
@@ -98,16 +100,40 @@ export function computeVerdict(input: {
   const declared = (input.declaredCountry || "").toUpperCase();
   const c = input.client;
 
-  // 1. ID + selfie + liveness (Stripe Identity) — strong trust when verified.
-  if (input.idv.status === "skipped") {
-    s.push(sig("idv", "Government ID + selfie match", "not evaluated", 0, false, false, "info",
-      "ID verification not configured (add Stripe Identity to enable)."));
-  } else if (input.idv.status === "verified") {
-    s.push(sig("idv", "Government ID + selfie match", "verified", -22, false, true, "pass",
+  // 1. ID + selfie + liveness — CRUCIAL. When an IDV provider is configured, a
+  // candidate who isn't verified (declined, abandoned, or never started) is a hard
+  // fail. Only "not configured at all" is treated as not-evaluated.
+  if (input.idv.status === "verified") {
+    s.push(sig("idv", "Government ID + selfie match", "verified", -25, false, true, "pass",
       "1:1 ID-to-selfie match and liveness passed via the IDV vendor."));
+  } else if (!input.idvAvailable && input.idv.status === "skipped") {
+    s.push(sig("idv", "Government ID + selfie match", "not evaluated", 0, false, false, "info",
+      "ID verification not configured (add Didit or Stripe Identity to enable)."));
   } else {
-    s.push(sig("idv", "Government ID + selfie match", input.idv.status, 25, true, true, "risk",
-      "ID verification did not complete / did not pass."));
+    // IDV is available but the candidate is not verified — crucial penalty.
+    const reason =
+      input.idv.status === "requires_input" ? "ID verification was declined / failed."
+      : input.idv.status === "processing" ? "ID verification was started but not completed/approved."
+      : input.idv.status === "error" ? "ID verification could not be retrieved."
+      : "Candidate did not complete the required government-ID check.";
+    s.push(sig("idv", "Government ID + selfie match", input.idv.status === "skipped" ? "not completed" : input.idv.status,
+      45, true, true, "risk", `${reason} A real candidate completes 1:1 ID + selfie. This is treated as a hard fail.`));
+  }
+
+  // 1b. Name on ID vs. the name the recruiter entered — impersonation tell.
+  const declaredName = (input.declaredName ?? "").trim();
+  if (input.idv.status === "verified" && declaredName && input.idv.idName) {
+    const match = namesMatchLoose(declaredName, input.idv.idName);
+    if (match) {
+      s.push(sig("namematch", "Name matches ID", "match", -10, false, true, "pass",
+        `The name on the government ID ("${input.idv.idName}") matches the candidate name on file.`));
+    } else {
+      s.push(sig("namematch", "Name matches ID", "mismatch", 40, true, true, "risk",
+        `The name on the government ID ("${input.idv.idName}") does NOT match the candidate name on file ("${declaredName}") — strong impersonation signal.`));
+    }
+  } else if (input.idv.status === "verified" && declaredName && !input.idv.idName) {
+    s.push(sig("namematch", "Name matches ID", "not evaluated", 0, false, false, "info",
+      "ID verified, but the provider didn't return the name on the document to compare."));
   }
 
   // 2. VPN / proxy / Tor
@@ -203,22 +229,18 @@ export function computeVerdict(input: {
   // 10b. Challenge-response liveness (on-device) — graded, harsh. A hard fail
   // (no face / multiple faces / a missed challenge) forces the verdict up; minor
   // quality flags (slow, erratic, abnormal blink) each deduct points.
-  let livenessHardFail = false;
   const ch = c.challenge;
   if (ch?.ran) {
     if (!ch.faceWasPresent) {
-      livenessHardFail = true;
       s.push(sig("challenge", "Live challenge-response", "no live face", 40, true, true, "risk",
         "No live face detected during the on-device challenges — photo / non-present candidate."));
     } else if (ch.multipleFaces) {
-      livenessHardFail = true;
       s.push(sig("challenge", "Live challenge-response", "multiple faces", 30, true, true, "risk",
         "More than one face present during the live challenge (off-camera help / impersonation)."));
     } else {
       const failed = ch.challengesTotal - ch.challengesPassed;
       const anomalies = ch.anomalies ?? [];
       let pts = failed * 28 + anomalies.length * 8;
-      if (failed > 0) livenessHardFail = true;
       const sev: Severity = pts >= 22 ? "risk" : pts > 0 ? "warn" : "pass";
       if (pts === 0) pts = -15; // a clean, prompt, natural response earns trust
       const flags = anomalies.map((a) => ANOMALY_LABEL[a] ?? a);
@@ -248,32 +270,72 @@ export function computeVerdict(input: {
     }
   }
 
-  // 12. Deepfake content (Reality Defender). A confirmed AI-generated/manipulated
-  // face is near-conclusive fraud, so it carries heavy weight and, above a high
-  // confidence, forces the verdict to High-risk on its own.
-  let deepfakeOverride = false;
-  if (input.deepfake.evaluated && input.deepfake.syntheticProbability != null) {
-    const p = input.deepfake.syntheticProbability;
-    const manipulated = p >= 0.6;
-    if (p >= 0.7) deepfakeOverride = true;
-    const df = sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% AI-generated`, manipulated ? 50 : -6, manipulated, true,
-      manipulated ? "risk" : "pass", input.deepfake.note);
-    df.info = { models: input.deepfake.models, requestId: input.deepfake.requestId, provider: input.deepfake.provider };
-    s.push(df);
-  } else {
-    s.push(sig("deepfake", "Deepfake content analysis", "not evaluated", 0, false, false, "info", input.deepfake.note));
-  }
+  // 12. Deepfake content (Reality Defender) — async; may still be processing.
+  s.push(deepfakeSignal(input.deepfake));
 
+  return { ...summarizeSignals(s), signals: s };
+}
+
+// The deepfake signal, built identically whether it's computed at submit time or
+// finalized later by the result-page poll (async pipeline).
+export function deepfakeSignal(df: DeepfakeResult): Signal {
+  if (df.evaluated && df.syntheticProbability != null) {
+    const p = df.syntheticProbability;
+    const manipulated = p >= 0.6;
+    const out = sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% AI-generated`, manipulated ? 50 : -6, manipulated, true,
+      manipulated ? "risk" : "pass", df.note);
+    out.info = { models: df.models, requestId: df.requestId, provider: df.provider };
+    return out;
+  }
+  if (df.status === "processing") {
+    return sig("deepfake", "Deepfake content analysis", "analyzing…", 0, false, false, "info",
+      "Deepfake analysis is running — the result will appear here automatically in a few seconds.");
+  }
+  return sig("deepfake", "Deepfake content analysis", "not evaluated", 0, false, false, "info", df.note);
+}
+
+// Roll a set of signals up into the final verdict. Pure function of the signals,
+// so it can re-run when the async deepfake result lands without re-fetching
+// everything. Categorical overrides are re-derived from the signals themselves.
+export function summarizeSignals(s: Signal[]): { riskScore: number; band: Verdict["band"]; label: string; confidencePct: number } {
   let score = Math.max(0, Math.min(100, s.reduce((a, x) => a + x.points, 0)));
   let band: Verdict["band"] = score >= 45 ? "risk" : score >= 20 ? "review" : "pass";
-  // Deterministic override: a high-confidence deepfake is a hard fail.
-  if (deepfakeOverride) { band = "risk"; score = Math.max(score, 90); }
-  // A failed liveness challenge (missed action / no face / multiple faces) forces
+
+  // A high-confidence deepfake is a hard fail on its own.
+  const df = s.find((x) => x.key === "deepfake");
+  const dfPct = df?.evaluated ? Number(/(\d+)%/.exec(df.value)?.[1] ?? NaN) : NaN;
+  if (!Number.isNaN(dfPct) && dfPct >= 70) { band = "risk"; score = Math.max(score, 90); }
+
+  // Name on the ID not matching the claimed name is near-conclusive impersonation.
+  const nm = s.find((x) => x.key === "namematch");
+  if (nm?.triggered && nm.severity === "risk") { band = "risk"; score = Math.max(score, 85); }
+
+  // ID verification is crucial — an available-but-unverified ID forces High-risk.
+  const idv = s.find((x) => x.key === "idv");
+  if (idv?.triggered && idv.severity === "risk") { if (band === "pass") band = "review"; score = Math.max(score, 45); band = score >= 45 ? "risk" : band; }
+
+  // A failed liveness challenge (no face / multiple faces / missed action) forces
   // at least Review — a real, present person completes the random prompts.
+  const ch = s.find((x) => x.key === "challenge");
+  const livenessHardFail = !!ch && (["no live face", "multiple faces"].includes(ch.value) || ch.value.startsWith("failed"));
   if (livenessHardFail && band === "pass") { band = "review"; score = Math.max(score, 24); }
+
   const label = band === "risk" ? "High fraud risk" : band === "review" ? "Review recommended" : "Likely a real, present candidate";
-  const evaluated = s.filter((x) => x.evaluated).length;
-  return { riskScore: score, band, label, confidencePct: Math.round((evaluated / s.length) * 100), signals: s };
+  const confidencePct = s.length ? Math.round((s.filter((x) => x.evaluated).length / s.length) * 100) : 0;
+  return { riskScore: score, band, label, confidencePct };
+}
+
+// Loose name match: case/punctuation-insensitive, order-independent token overlap.
+// Requires every token of the shorter name to appear in the longer (handles middle
+// names, "DOE JOHN" vs "John Doe", accents stripped).
+export function namesMatchLoose(a: string, b: string): boolean {
+  const norm = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((t) => t.length > 1);
+  const ta = norm(a), tb = norm(b);
+  if (!ta.length || !tb.length) return false;
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  const longSet = new Set(long);
+  const overlap = short.filter((t) => longSet.has(t)).length;
+  return overlap >= Math.min(2, short.length) && overlap / short.length >= 0.6;
 }
 
 function sig(key: string, label: string, value: string, points: number, triggered: boolean, evaluated: boolean, severity: Severity, detail: string): Signal {

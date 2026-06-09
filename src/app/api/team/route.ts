@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { getSession, hashPassword } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/env";
 import { audit } from "@/lib/audit";
+
+const canManageTeam = (s: { role: string; email: string }) => s.role === "owner" || s.role === "admin" || isSuperAdmin(s.email);
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +33,7 @@ const Invite = z.object({
 export async function POST(req: Request) {
   const session = getSession();
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-  if (session.role !== "owner" && session.role !== "admin") {
+  if (!canManageTeam(session)) {
     return NextResponse.json({ error: "Only owners and admins can add members." }, { status: 403 });
   }
   const parsed = Invite.safeParse(await req.json().catch(() => null));

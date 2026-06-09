@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/env";
 import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   const session = getSession();
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-  if (session.role !== "owner" && session.role !== "admin") {
+  if (session.role !== "owner" && session.role !== "admin" && !isSuperAdmin(session.email)) {
     return NextResponse.json({ error: "Only owners and admins can remove members." }, { status: 403 });
   }
   if (params.id === session.userId) {
@@ -23,6 +24,9 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   }
   if (target.role === "owner") {
     return NextResponse.json({ error: "The org owner can't be removed." }, { status: 400 });
+  }
+  if (isSuperAdmin(target.email)) {
+    return NextResponse.json({ error: "This account can't be removed." }, { status: 400 });
   }
   await prisma.user.delete({ where: { id: params.id } });
   await audit({

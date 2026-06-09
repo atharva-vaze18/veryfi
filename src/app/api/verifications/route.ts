@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
 import { usageStatus } from "@/lib/billing";
+import { finalizeDeepfake } from "@/lib/deepfake-finalize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,16 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
     take: 200,
   });
+  // Resolve any pending deepfake analyses (async pipeline) — capped so a poll stays fast.
+  const pending = rows.filter((r) => r.deepfakeRequestId).slice(0, 5);
+  if (pending.length) {
+    await Promise.all(pending.map((r) => finalizeDeepfake(r).catch(() => null)));
+    if (pending.length) {
+      const refreshed = await prisma.verification.findMany({ where: { id: { in: pending.map((r) => r.id) } } });
+      const byId = new Map(refreshed.map((r) => [r.id, r]));
+      for (let i = 0; i < rows.length; i++) { const u = byId.get(rows[i]!.id); if (u) rows[i] = u; }
+    }
+  }
   const list = rows.map((v) => ({
     id: v.id,
     candidateName: v.candidateName,
@@ -54,9 +65,9 @@ export async function POST(req: Request) {
   const parsed = Create.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  // Usage metering: block once the org is over its monthly quota (only enforced
-  // when billing is configured — see features.billing).
-  const usage = await usageStatus(session.orgId);
+  // Usage metering: block once the org is over its monthly quota (always enforced;
+  // super-admins are unlimited).
+  const usage = await usageStatus(session.orgId, session.email);
   if (usage.blocked) {
     return NextResponse.json(
       { error: `Monthly limit reached (${usage.usage}/${usage.quota} on the ${usage.plan} plan). Upgrade to keep verifying.`, code: "quota_exceeded", usage },

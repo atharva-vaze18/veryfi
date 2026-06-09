@@ -5,7 +5,10 @@ out/
 next-env.d.ts
 .env
 .env.local
+.env.vercel
+.env.*.local
 *.log
 .DS_Store
 prisma/*.db
 prisma/*.db-journal
+.vercel

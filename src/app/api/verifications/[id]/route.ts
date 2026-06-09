@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
-import type { Signal } from "@/lib/score";
+import { type Signal } from "@/lib/score";
+import { finalizeDeepfake } from "@/lib/deepfake-finalize";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +29,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   });
   if (!v || v.orgId !== session.orgId) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const signals: Signal[] = v.signalsJson ? JSON.parse(v.signalsJson) : [];
+  // Async deepfake: finalize if RD has a result now (the result page polls this).
+  const finalized = await finalizeDeepfake(v).catch(() => null);
+  const signals: Signal[] = finalized ? finalized.signals : v.signalsJson ? JSON.parse(v.signalsJson) : [];
+  const riskScore = finalized ? finalized.riskScore : v.riskScore;
+  const band = finalized ? finalized.band : v.band;
+  const verdict = finalized ? finalized.label : v.verdict;
   return NextResponse.json({
     id: v.id,
     candidateName: v.candidateName,
@@ -37,9 +43,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     declaredCountry: v.declaredCountry,
     status: v.status,
     candidateLink: `${env.APP_URL}/v/${v.token}`,
-    riskScore: v.riskScore,
-    band: v.band,
-    verdict: v.verdict,
+    riskScore,
+    band,
+    verdict,
     confidencePct: signals.length ? Math.round((signals.filter((s) => s.evaluated).length / signals.length) * 100) : null,
     idv: { status: v.idvStatus, provider: v.idvProvider, selfieMatch: v.selfieMatch, livenessPassed: v.livenessPassed },
     observedCountry: v.observedCountry,

@@ -22,36 +22,54 @@ export interface DeepfakeResult {
   note: string;
 }
 
-// `filePath` is a local image written from the candidate's captured frame.
-export async function scoreDeepfake(filePath?: string | null): Promise<DeepfakeResult> {
-  if (!features.realityDefender) {
-    return { evaluated: false, provider: "none", syntheticProbability: null, note: "No deepfake-content provider configured (set REALITY_DEFENDER_API_KEY)." };
-  }
-  if (!filePath) {
-    return { evaluated: false, provider: "Reality Defender", syntheticProbability: null, note: "No face image captured to analyze." };
-  }
+// Result helpers for the three non-final states.
+const notConfigured = (): DeepfakeResult => ({ evaluated: false, provider: "none", syntheticProbability: null, note: "No deepfake-content provider configured (set REALITY_DEFENDER_API_KEY)." });
+const noFrame = (): DeepfakeResult => ({ evaluated: false, provider: "Reality Defender", syntheticProbability: null, note: "No face image captured to analyze." });
+export const pendingDeepfake = (): DeepfakeResult => ({ evaluated: false, provider: "Reality Defender", syntheticProbability: null, status: "processing", note: "Deepfake analysis in progress — result appears shortly." });
+
+// STEP 1 (in submit): upload the captured frame and return immediately with a
+// requestId. Upload is fast (seconds), so the candidate submit stays well within
+// Vercel's free function budget. The heavy analysis happens server-side at RD;
+// we poll for it later (getDeepfakeResult). Returns null when we can't start one.
+export async function startDeepfake(filePath?: string | null): Promise<string | null> {
+  if (!features.realityDefender || !filePath) return null;
   try {
     const rd = new RealityDefender({ apiKey: env.REALITY_DEFENDER_API_KEY });
-    // RD detect() uploads + polls; cap the wait so the submit handler always
-    // returns within the serverless function budget (see DEEPFAKE_TIMEOUT_MS —
-    // tuned low for Vercel's free tier; on timeout we degrade to "not evaluated").
-    const result = (await Promise.race([
-      rd.detect({ filePath }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("RD timeout")), env.DEEPFAKE_TIMEOUT_MS)),
-    ])) as { status?: string; score?: number; requestId?: string; models?: DeepfakeModel[] };
+    const { requestId } = await rd.upload({ filePath });
+    return requestId ?? null;
+  } catch {
+    return null;
+  }
+}
 
+// STEP 2 (on result-page poll): fetch the current RD result for a requestId.
+// A null score means RD is still analyzing → we report it as still-processing so
+// the caller keeps polling. A non-null score is the final verdict.
+export async function getDeepfakeResult(requestId: string): Promise<DeepfakeResult> {
+  if (!features.realityDefender) return notConfigured();
+  try {
+    const rd = new RealityDefender({ apiKey: env.REALITY_DEFENDER_API_KEY });
+    const result = (await Promise.race([
+      rd.getResult(requestId),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("RD timeout")), env.DEEPFAKE_TIMEOUT_MS)),
+    ])) as { status?: string; score?: number | null; models?: DeepfakeModel[] };
     const score = typeof result.score === "number" ? result.score : null;
+    if (score == null) return pendingDeepfake(); // still analyzing
     return {
-      evaluated: score != null,
+      evaluated: true,
       provider: "Reality Defender",
       syntheticProbability: score,
       status: result.status,
-      requestId: result.requestId,
+      requestId,
       models: Array.isArray(result.models) ? result.models : undefined,
-      note: `RD analysis: ${result.status ?? "completed"}${score != null ? ` (${Math.round(score * 100)}% manipulated)` : ""}.`,
+      note: `RD analysis: ${result.status ?? "completed"} (${Math.round(score * 100)}% manipulated).`,
     };
-  } catch (e) {
-    // Graceful + honest: a timeout/error means "not evaluated", never a fake pass.
-    return { evaluated: false, provider: "Reality Defender", syntheticProbability: null, note: `Deepfake analysis unavailable: ${(e as Error).message}.` };
+  } catch {
+    return pendingDeepfake(); // transient — keep polling
   }
+}
+
+// Used when no analysis could be started (no key / no frame) — honest "not evaluated".
+export function deepfakeUnavailable(hasFrame: boolean): DeepfakeResult {
+  return !features.realityDefender ? notConfigured() : hasFrame ? notConfigured() : noFrame();
 }

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { stripe } from "@/lib/billing";
 import { PLANS } from "@/lib/plans";
-import { env, features } from "@/lib/env";
+import { env, features, isSuperAdmin } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,11 +15,11 @@ const Body = z.object({ plan: z.enum(["starter", "scale"]) });
 export async function POST(req: Request) {
   const session = getSession();
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-  if (session.role !== "owner" && session.role !== "admin") {
+  if (session.role !== "owner" && session.role !== "admin" && !isSuperAdmin(session.email)) {
     return NextResponse.json({ error: "Only owners and admins can change the plan." }, { status: 403 });
   }
   const s = stripe();
-  if (!s || !features.billing) {
+  if (!s || !features.stripeBilling) {
     return NextResponse.json({ error: "Self-serve billing is not configured yet." }, { status: 501 });
   }
   const parsed = Body.safeParse(await req.json().catch(() => null));

@@ -4,8 +4,8 @@ import { AppShell } from "@/components/AppShell";
 
 interface PlanCard { id: string; name: string; priceLabel: string; monthlyQuota: number | null; blurb: string; purchasable: boolean; contactSales: boolean }
 interface Billing {
-  usage: number; quota: number; plan: string; metered: boolean; remaining: number;
-  billingEnabled: boolean; canManage: boolean; plans: PlanCard[];
+  usage: number; quota: number; plan: string; metered: boolean; remaining: number; unlimited: boolean;
+  stripeBilling: boolean; canManage: boolean; superAdmin: boolean; plans: PlanCard[];
 }
 
 export default function BillingPage() {
@@ -48,10 +48,16 @@ function Inner() {
       <h1 className="font-display text-3xl text-ink mb-1">Billing &amp; usage</h1>
       <p className="text-muted text-sm mb-6">Your plan, this month&apos;s usage, and upgrades.</p>
 
-      {!b.billingEnabled && (
+      {b.superAdmin && (
+        <div className="panel p-4 mb-5 border-accent/40 bg-accent/5">
+          <div className="text-sm text-ink">Super-admin account — unlimited usage.</div>
+          <div className="text-xs text-muted mt-1">Your account is never metered or walled.</div>
+        </div>
+      )}
+      {!b.superAdmin && !b.stripeBilling && (
         <div className="panel p-4 mb-5 border-accent/30 bg-accent/5">
-          <div className="text-sm text-ink">Self-serve billing isn&apos;t switched on yet.</div>
-          <div className="text-xs text-muted mt-1">All accounts run unmetered until Stripe is configured (add the keys + plan price IDs). Usage below is still tracked.</div>
+          <div className="text-sm text-ink">Usage is tracked &amp; your monthly quota is enforced.</div>
+          <div className="text-xs text-muted mt-1">To let teams self-upgrade with a card, wire Stripe (add the secret key + plan price IDs). Until then, upgrades are handled by contacting sales.</div>
         </div>
       )}
 
@@ -63,7 +69,7 @@ function Inner() {
           </div>
           <div className="text-right">
             <div className="label">This month</div>
-            <div className={`font-mono text-lg ${over ? "text-risk" : "text-ink"}`}>{b.usage}{b.metered ? ` / ${b.quota}` : ""}</div>
+            <div className={`font-mono text-lg ${over ? "text-risk" : "text-ink"}`}>{b.usage}{b.unlimited ? " · unlimited" : ` / ${b.quota}`}</div>
           </div>
         </div>
         {b.metered && (
@@ -74,7 +80,7 @@ function Inner() {
             <div className="text-xs text-muted mt-2">{over ? "Over the monthly limit — upgrade to keep verifying." : `${b.remaining} verifications left this month.`}</div>
           </>
         )}
-        {b.canManage && b.billingEnabled && b.plan !== "free" && (
+        {b.canManage && b.stripeBilling && b.plan !== "free" && !b.unlimited && (
           <button onClick={portal} disabled={busy === "portal"} className="btn-ghost mt-4">{busy === "portal" ? "Opening…" : "Manage subscription / invoices"}</button>
         )}
       </div>
@@ -96,8 +102,10 @@ function Inner() {
                   <a href="mailto:sales@orbyt.io" className="btn-ghost w-full text-center text-sm">Contact sales</a>
                 ) : p.purchasable && b.canManage ? (
                   <button onClick={() => upgrade(p.id)} disabled={busy === p.id} className="btn-primary w-full text-sm">{busy === p.id ? "…" : "Upgrade"}</button>
+                ) : b.canManage ? (
+                  <a href={`mailto:sales@orbyt.io?subject=Upgrade to ${p.name}`} className="btn-ghost w-full text-center text-sm">Contact to upgrade</a>
                 ) : (
-                  <div className="text-xs text-center py-2 text-muted">{b.canManage ? "Unavailable" : "Owner/admin only"}</div>
+                  <div className="text-xs text-center py-2 text-muted">Owner/admin only</div>
                 )}
               </div>
             </div>

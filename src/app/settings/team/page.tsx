@@ -47,6 +47,14 @@ function Inner() {
     else alert((await r.json()).error ?? "Could not remove");
   }
 
+  async function resetPassword(id: string, email: string) {
+    if (!confirm(`Reset the password for ${email}? Their current password stops working.`)) return;
+    const r = await fetch(`/api/team/${id}/password`, { method: "POST" });
+    const j = await r.json();
+    if (r.ok) setCreated({ email: j.email, password: j.password });
+    else alert(j.error ?? "Could not reset");
+  }
+
   function genPassword() {
     const p = Array.from(crypto.getRandomValues(new Uint8Array(9))).map((b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 30]).join("");
     setForm((f) => ({ ...f, password: p }));
@@ -64,7 +72,7 @@ function Inner() {
 
       {created && (
         <div className="panel p-4 mb-5 border-pass/40 bg-pass/5">
-          <div className="label mb-1 text-pass">Member created — share these credentials securely</div>
+          <div className="label mb-1 text-pass">Credentials — share securely (shown once)</div>
           <div className="font-mono text-sm text-ink">{created.email}</div>
           <div className="font-mono text-sm text-ink">password: {created.password}</div>
           <p className="text-xs text-muted mt-2">We don&apos;t show this again. Send it over a secure channel; they can change it later.</p>
@@ -111,9 +119,12 @@ function Inner() {
                 <td className="px-5 py-3"><div className="text-ink">{m.name}{m.id === you ? <span className="text-muted text-xs"> (you)</span> : ""}</div><div className="text-muted text-xs">{m.email}</div></td>
                 <td className="px-5 py-3"><span className={`text-xs uppercase tracking-wide ${m.role === "owner" ? "text-accent" : "text-muted"}`}>{m.role}</span></td>
                 <td className="px-5 py-3 text-muted text-xs">{m.lastLoginAt ? new Date(m.lastLoginAt).toLocaleDateString() : "never"}</td>
-                <td className="px-5 py-3 text-right">
+                <td className="px-5 py-3 text-right whitespace-nowrap">
+                  {canManage && m.id !== you && (
+                    <button onClick={() => resetPassword(m.id, m.email)} className="text-muted hover:text-accent text-sm">Reset password</button>
+                  )}
                   {canManage && m.role !== "owner" && m.id !== you && (
-                    <button onClick={() => remove(m.id, m.email)} className="text-muted hover:text-risk text-sm">Remove</button>
+                    <button onClick={() => remove(m.id, m.email)} className="ml-4 text-muted hover:text-risk text-sm">Remove</button>
                   )}
                 </td>
               </tr>

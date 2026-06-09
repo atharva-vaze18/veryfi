@@ -16,6 +16,49 @@ export interface IdvResult {
   selfieMatch: number | null;
   livenessPassed: boolean | null;
   provider: string;
+  idName: string | null; // full name read off the government ID (for name-match)
+}
+
+// Recursively hunt a decision payload for the name printed on the ID. Providers
+// nest this differently (e.g. id_verification.full_name, or first/last name), so
+// we search defensively rather than assume one shape.
+function extractIdName(obj: unknown, depth = 0): string | null {
+  if (!obj || typeof obj !== "object" || depth > 5) return null;
+  const o = obj as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const full = str(o.full_name) ?? str(o.fullName) ?? str(o.name_on_document) ?? str(o.document_name);
+  if (full) return full;
+  const first = str(o.first_name) ?? str(o.firstName) ?? str(o.given_name);
+  const last = str(o.last_name) ?? str(o.lastName) ?? str(o.surname) ?? str(o.family_name);
+  if (first || last) return [first, last].filter(Boolean).join(" ");
+  for (const v of Object.values(o)) {
+    if (v && typeof v === "object") {
+      const found = extractIdName(v, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// Find a 0..1 face/selfie-match score anywhere in the payload (providers report
+// it as 0..1 or 0..100 — normalize to 0..1).
+function extractFaceScore(obj: unknown, depth = 0): number | null {
+  if (!obj || typeof obj !== "object" || depth > 5) return null;
+  const o = obj as Record<string, unknown>;
+  for (const key of ["face_match", "faceMatch", "face_comparison"]) {
+    const fm = o[key];
+    if (fm && typeof fm === "object") {
+      const sc = (fm as Record<string, unknown>).score;
+      if (typeof sc === "number") return sc > 1 ? sc / 100 : sc;
+    }
+  }
+  for (const v of Object.values(o)) {
+    if (v && typeof v === "object") {
+      const found = extractFaceScore(v, depth + 1);
+      if (found != null) return found;
+    }
+  }
+  return null;
 }
 
 function form(obj: Record<string, string>): string {
@@ -71,7 +114,7 @@ export async function createIdvSession(opts: {
 
 export async function fetchIdvResult(sessionRef: string | null): Promise<IdvResult> {
   if (!sessionRef) {
-    return { status: "skipped", selfieMatch: null, livenessPassed: null, provider: "none" };
+    return { status: "skipped", selfieMatch: null, livenessPassed: null, provider: "none", idName: null };
   }
 
   // Didit decision endpoint (v3).
@@ -80,9 +123,10 @@ export async function fetchIdvResult(sessionRef: string | null): Promise<IdvResu
       headers: { "x-api-key": env.DIDIT_API_KEY },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return { status: "error", selfieMatch: null, livenessPassed: null, provider: "Didit" };
+    if (!res.ok) return { status: "error", selfieMatch: null, livenessPassed: null, provider: "Didit", idName: null };
     const j = (await res.json()) as { status?: string };
     const approved = j.status === "Approved";
+    const faceScore = extractFaceScore(j);
     return {
       status: approved
         ? "verified"
@@ -91,22 +135,24 @@ export async function fetchIdvResult(sessionRef: string | null): Promise<IdvResu
           : j.status === "In Review"
             ? "processing"
             : "skipped",
-      selfieMatch: approved ? 0.99 : null,
+      selfieMatch: approved ? (faceScore ?? 0.99) : faceScore,
       livenessPassed: approved ? true : j.status === "Declined" ? false : null,
       provider: "Didit",
+      idName: extractIdName(j),
     };
   }
 
   if (!features.stripeIdentity) {
-    return { status: "skipped", selfieMatch: null, livenessPassed: null, provider: "none" };
+    return { status: "skipped", selfieMatch: null, livenessPassed: null, provider: "none", idName: null };
   }
-  const res = await fetch(`https://api.stripe.com/v1/identity/verification_sessions/${sessionRef}`, {
+  const res = await fetch(`https://api.stripe.com/v1/identity/verification_sessions/${sessionRef}?expand[]=verified_outputs`, {
     headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
     signal: AbortSignal.timeout(12000),
   });
-  if (!res.ok) return { status: "error", selfieMatch: null, livenessPassed: null, provider: "Stripe Identity" };
-  const j = (await res.json()) as { status: string };
+  if (!res.ok) return { status: "error", selfieMatch: null, livenessPassed: null, provider: "Stripe Identity", idName: null };
+  const j = (await res.json()) as { status: string; verified_outputs?: { first_name?: string; last_name?: string } };
   const verified = j.status === "verified";
+  const vo = j.verified_outputs;
   return {
     status: verified
       ? "verified"
@@ -119,5 +165,6 @@ export async function fetchIdvResult(sessionRef: string | null): Promise<IdvResu
     selfieMatch: verified ? 0.99 : null,
     livenessPassed: verified ? true : j.status === "requires_input" ? false : null,
     provider: "Stripe Identity",
+    idName: vo ? [vo.first_name, vo.last_name].filter(Boolean).join(" ") || null : null,
   };
 }

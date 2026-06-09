@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { OrbytMark } from "@/components/ui";
 
@@ -100,6 +101,9 @@ export default function Landing() {
             {err && <div className="text-risk text-xs border border-risk/30 bg-risk/5 px-3 py-2 rounded">{err}</div>}
             <button className="btn-primary w-full" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account →" : "Sign in"}</button>
           </form>
+          {mode === "signin" && (
+            <div className="mt-3 text-right"><Link href="/forgot" className="text-xs text-muted hover:text-accent">Forgot password?</Link></div>
+          )}
           <div className="mt-6 text-xs text-muted">
             {mode === "signup"
               ? <>Already have an account? <button onClick={() => setMode("signin")} className="text-accent">Sign in</button></>

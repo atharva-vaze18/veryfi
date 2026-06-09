@@ -4,8 +4,9 @@ import { getClientIp } from "@/lib/request";
 import { getIpIntel } from "@/adapters/ipintel";
 import { getEmailRisk } from "@/adapters/emailrisk";
 import { fetchIdvResult } from "@/adapters/identity";
-import { scoreDeepfake } from "@/adapters/deepfake";
+import { startDeepfake, pendingDeepfake, deepfakeUnavailable } from "@/adapters/deepfake";
 import { computeVerdict, detectVirtualCameras, type ClientSignals } from "@/lib/score";
+import { features } from "@/lib/env";
 import { audit } from "@/lib/audit";
 import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,16 +52,21 @@ export async function POST(req: Request, { params }: { params: { token: string }
   const framePath = await writeFrameToTemp(body.faceImage, params.token);
 
   const ip = getClientIp(req);
-  const [ipIntel, email, idv, deepfake] = await Promise.all([
+  // Kick off deepfake analysis async (upload → requestId, fast) so the submit
+  // returns within the serverless budget; the result-page poll finalizes it.
+  const [ipIntel, email, idv, deepfakeRequestId] = await Promise.all([
     getIpIntel(ip),
     getEmailRisk(v.candidateEmail),
     fetchIdvResult(v.idvSessionRef),
-    scoreDeepfake(framePath),
+    startDeepfake(framePath),
   ]);
   if (framePath) await unlink(framePath).catch(() => {});
 
+  const deepfake = deepfakeRequestId ? pendingDeepfake() : deepfakeUnavailable(!!framePath);
   const verdict = computeVerdict({
     declaredCountry: v.declaredCountry,
+    declaredName: v.candidateName,
+    idvAvailable: features.didit || features.stripeIdentity,
     ip: ipIntel,
     email,
     idv,
@@ -78,9 +84,11 @@ export async function POST(req: Request, { params }: { params: { token: string }
       signalsJson: JSON.stringify(verdict.signals),
       idvStatus: idv.status,
       idvProvider: idv.provider,
+      idName: idv.idName,
       selfieMatch: idv.selfieMatch,
       livenessPassed: idv.livenessPassed,
       observedCountry: ipIntel.country,
+      deepfakeRequestId,
       completedAt: new Date(),
     },
   });
