@@ -18,6 +18,8 @@ export const env = {
   DIDIT_WORKFLOW_ID: process.env.DIDIT_WORKFLOW_ID ?? "",
   REALITY_DEFENDER_API_KEY: process.env.REALITY_DEFENDER_API_KEY ?? "",
   BIOMETRIC_RETENTION_DAYS: Number(process.env.BIOMETRIC_RETENTION_DAYS ?? "30"),
+  SUPABASE_URL: process.env.SUPABASE_URL ?? "",
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   // How long the submit handler waits for deepfake analysis before degrading it to
   // "not evaluated". Default is tuned for Vercel's FREE (Hobby) function budget so
   // the candidate submit always returns. On Vercel Pro, raise this to ~45000 and

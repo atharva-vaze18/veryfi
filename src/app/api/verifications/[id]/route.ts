@@ -45,6 +45,9 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     observedCountry: v.observedCountry,
     signals,
     consents: v.consents.map((c) => ({ type: c.type, version: c.documentVersion, signedAt: c.signedAt })),
+    frameStorageKeys: v.frameStorageKeys ? (() => { try { return JSON.parse(v.frameStorageKeys!); } catch { return []; } })() : [],
+    reviewDecision: v.reviewDecision,
+    reviewNotes: v.reviewNotes,
     createdAt: v.createdAt,
     completedAt: v.completedAt,
   });

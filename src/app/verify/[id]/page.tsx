@@ -6,11 +6,17 @@ import { AppShell } from "@/components/AppShell";
 import { BandBadge, RiskMeter, SignalRow } from "@/components/ui";
 import type { Signal } from "@/lib/score";
 
+interface FrameUrl { key: string; url: string | null }
+
 interface Detail {
   candidateName: string; candidateEmail: string; roleContext: string; declaredCountry: string;
   status: string; candidateLink: string; riskScore: number | null; band: string | null; verdict: string | null;
   confidencePct: number | null; idv: { status: string | null; provider: string | null; livenessPassed: boolean | null };
-  observedCountry: string | null; signals: Signal[]; createdAt: string; completedAt: string | null;
+  observedCountry: string | null; signals: Signal[];
+  frameStorageKeys: string[];
+  reviewDecision: string | null;
+  reviewNotes: string | null;
+  createdAt: string; completedAt: string | null;
 }
 
 export default function ResultPage() {
@@ -20,8 +26,10 @@ export default function ResultPage() {
 function Inner() {
   const { id } = useParams<{ id: string }>();
   const [d, setD] = useState<Detail | null>(null);
+  const [frames, setFrames] = useState<FrameUrl[]>([]);
+  const [reviewNotes, setReviewNotes] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
 
-  // Live: poll so a pending verification flips to its result automatically.
   useEffect(() => {
     let active = true;
     const load = async () => {
@@ -32,6 +40,28 @@ function Inner() {
     window.addEventListener("focus", load);
     return () => { active = false; clearInterval(iv); window.removeEventListener("focus", load); };
   }, [id]);
+
+  useEffect(() => {
+    if (d?.band === "review" && d.frameStorageKeys.length > 0) {
+      fetch(`/api/verifications/${id}/frames`).then(async (r) => {
+        if (r.ok) setFrames((await r.json()).urls);
+      });
+    }
+  }, [d?.band, d?.frameStorageKeys.length, id]);
+
+  async function submitReview(decision: "cleared" | "confirmed_fraud") {
+    setSubmittingReview(true);
+    try {
+      await fetch(`/api/verifications/${id}/review`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reviewDecision: decision, reviewNotes }),
+      });
+      const j = await (await fetch(`/api/verifications/${id}`)).json();
+      setD(j);
+    } finally { setSubmittingReview(false); }
+  }
+
   if (!d) return <p className="text-muted text-sm">Loading…</p>;
 
   if (d.status !== "complete") {
@@ -91,6 +121,78 @@ function Inner() {
           </p>
         </div>
       </div>
+
+      {/* Feature 6: Session replay for "review" band */}
+      {d.band === "review" && (
+        <div className="mt-6 panel p-5">
+          <div className="label mb-3">Review session</div>
+
+          {frames.length > 0 ? (
+            <div>
+              <p className="text-xs text-muted mb-3">Captured frames from the liveness challenge. Stored for 30 days.</p>
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {frames.map((f, i) => (
+                  <div key={f.key} className="shrink-0">
+                    {f.url ? (
+                      <img src={f.url} alt={`Frame ${i + 1}`} className="w-32 h-24 object-cover rounded border border-rule" />
+                    ) : (
+                      <div className="w-32 h-24 flex items-center justify-center bg-paper-3 rounded border border-rule text-xs text-muted">no URL</div>
+                    )}
+                    <div className="text-[10px] text-muted text-center mt-1">frame {i + 1}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted mb-3">No session frames captured for this verification.</p>
+          )}
+
+          <div className="mt-4 border-t border-rule/60 pt-4">
+            <div className="label mb-2">Signal timeline</div>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {d.signals.filter((s) => s.evaluated).map((s, i) => (
+                <span key={s.key} className={`text-[11px] font-mono px-2 py-0.5 rounded border ${s.triggered ? "border-risk/40 text-risk bg-risk/5" : "border-pass/30 text-pass bg-pass/5"}`}>
+                  {i + 1}. {s.key}
+                </span>
+              ))}
+            </div>
+
+            {d.reviewDecision ? (
+              <div className={`p-3 rounded border text-sm ${d.reviewDecision === "cleared" ? "border-pass/40 bg-pass/10 text-pass" : "border-risk/40 bg-risk/10 text-risk"}`}>
+                Decision: <strong>{d.reviewDecision === "cleared" ? "Cleared" : "Confirmed fraud"}</strong>
+                {d.reviewNotes && <div className="text-xs mt-1 text-muted">{d.reviewNotes}</div>}
+              </div>
+            ) : (
+              <div>
+                <div className="label mb-1">Recruiter notes</div>
+                <textarea
+                  className="field w-full mb-3"
+                  rows={3}
+                  placeholder="Add your review notes…"
+                  value={reviewNotes}
+                  onChange={(e) => setReviewNotes(e.target.value)}
+                />
+                <div className="flex gap-3">
+                  <button
+                    className="px-4 py-2 text-sm rounded border border-pass/40 bg-pass/10 text-pass hover:bg-pass/20 transition-colors disabled:opacity-50"
+                    disabled={submittingReview}
+                    onClick={() => submitReview("cleared")}
+                  >
+                    Mark as cleared
+                  </button>
+                  <button
+                    className="px-4 py-2 text-sm rounded border border-risk/40 bg-risk/10 text-risk hover:bg-risk/20 transition-colors disabled:opacity-50"
+                    disabled={submittingReview}
+                    onClick={() => submitReview("confirmed_fraud")}
+                  >
+                    Confirm fraud
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
