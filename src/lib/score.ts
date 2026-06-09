@@ -70,6 +70,69 @@ export interface Verdict {
   signals: Signal[];
 }
 
+// Feature 4: All hardcoded weights extracted here so they can be overridden per-org.
+// Maps signal key → default risk points (positive = adds risk, negative = reduces it).
+export const DEFAULT_WEIGHTS: Record<string, number> = {
+  idv_verified: -22,
+  idv_failed: 25,
+  anon_detected: 20,
+  anon_none: -3,
+  datacenter: 15,
+  fraudscore_high: 12,
+  fraudscore_mid: 6,
+  fraudscore_low: -4,
+  geo_mismatch: 15,
+  geo_match: -2,
+  latency_high: 15,
+  latency_mid: 7,
+  latency_low: -2,
+  timezone_mismatch: 10,
+  vcam_detected: 22,
+  vcam_none: -2,
+  automation: 15,
+  liveness_static: 15,
+  liveness_live: -8,
+  challenge_no_face: 40,
+  challenge_multiple_faces: 30,
+  challenge_failed_per: 28,     // per failed challenge
+  challenge_anomaly_per: 8,     // per anomaly
+  challenge_passed: -15,
+  email_disposable: 10,
+  email_no_mx: 8,
+  email_corporate: -3,
+  deepfake_manipulated: 50,
+  deepfake_authentic: -6,
+  // Feature 5: behavioral biometrics
+  behavioral_scripted: 15,
+  behavioral_coaching: 10,
+};
+
+export interface ScoringProfile {
+  weightsJson: string;         // JSON object overriding DEFAULT_WEIGHTS keys
+  bandThresholds: string;      // JSON: {pass: number, review: number}
+  useGlobalDefaults: boolean;
+}
+
+function resolveWeights(profile?: ScoringProfile | null): Record<string, number> {
+  if (!profile || profile.useGlobalDefaults) return DEFAULT_WEIGHTS;
+  try {
+    const overrides = JSON.parse(profile.weightsJson) as Record<string, number>;
+    return { ...DEFAULT_WEIGHTS, ...overrides };
+  } catch {
+    return DEFAULT_WEIGHTS;
+  }
+}
+
+function resolveBandThresholds(profile?: ScoringProfile | null): { pass: number; review: number } {
+  if (!profile || profile.useGlobalDefaults) return { pass: 20, review: 45 };
+  try {
+    const t = JSON.parse(profile.bandThresholds) as { pass?: number; review?: number };
+    return { pass: t.pass ?? 20, review: t.review ?? 45 };
+  } catch {
+    return { pass: 20, review: 45 };
+  }
+}
+
 // Compact country → standard UTC offset (minutes) map for the timezone-consistency
 // check. Not exhaustive; unknown countries skip the check (reported not-evaluated).
 const COUNTRY_OFFSET: Record<string, number> = {
@@ -86,14 +149,20 @@ export function detectVirtualCameras(labels: string[]): string[] {
   return labels.filter((l) => VCAM_PATTERNS.test(l));
 }
 
-export function computeVerdict(input: {
-  declaredCountry: string;
-  ip: IpIntel;
-  email: EmailRisk;
-  idv: IdvResult;
-  deepfake: DeepfakeResult;
-  client: ClientSignals;
-}): Verdict {
+export function computeVerdict(
+  input: {
+    declaredCountry: string;
+    ip: IpIntel;
+    email: EmailRisk;
+    idv: IdvResult;
+    deepfake: DeepfakeResult;
+    client: ClientSignals;
+    behavioral?: BehavioralSignals | null;
+  },
+  profile?: ScoringProfile | null,
+): Verdict {
+  const w = resolveWeights(profile);
+  const thresholds = resolveBandThresholds(profile);
   const s: Signal[] = [];
   const declared = (input.declaredCountry || "").toUpperCase();
   const c = input.client;
@@ -103,17 +172,17 @@ export function computeVerdict(input: {
     s.push(sig("idv", "Government ID + selfie match", "not evaluated", 0, false, false, "info",
       "ID verification not configured (add Stripe Identity to enable)."));
   } else if (input.idv.status === "verified") {
-    s.push(sig("idv", "Government ID + selfie match", "verified", -22, false, true, "pass",
+    s.push(sig("idv", "Government ID + selfie match", "verified", w.idv_verified ?? -22, false, true, "pass",
       "1:1 ID-to-selfie match and liveness passed via the IDV vendor."));
   } else {
-    s.push(sig("idv", "Government ID + selfie match", input.idv.status, 25, true, true, "risk",
+    s.push(sig("idv", "Government ID + selfie match", input.idv.status, w.idv_failed ?? 25, true, true, "risk",
       "ID verification did not complete / did not pass."));
   }
 
   // 2. VPN / proxy / Tor
   if (input.ip.vpnEvaluated) {
     const anon = !!(input.ip.isVpn || input.ip.isProxy || input.ip.isTor);
-    s.push(sig("anon", "VPN / proxy / Tor egress", anon ? "detected" : "none", anon ? 20 : -3, anon, true,
+    s.push(sig("anon", "VPN / proxy / Tor egress", anon ? "detected" : "none", anon ? (w.anon_detected ?? 20) : (w.anon_none ?? -3), anon, true,
       anon ? "risk" : "pass",
       anon ? "Connection is anonymized — common in remote-impersonation fraud." : "No anonymizing network detected."));
   } else {
@@ -124,7 +193,7 @@ export function computeVerdict(input: {
   // 3. Datacenter egress
   if (input.ip.vpnEvaluated) {
     const dc = !!input.ip.isDatacenter;
-    s.push(sig("datacenter", "Datacenter / hosting IP", dc ? "yes" : "no", dc ? 15 : 0, dc, true,
+    s.push(sig("datacenter", "Datacenter / hosting IP", dc ? "yes" : "no", dc ? (w.datacenter ?? 15) : 0, dc, true,
       dc ? "risk" : "pass",
       dc ? "Traffic originates from a hosting provider, not a residential ISP." : "Residential/mobile connection."));
   }
@@ -132,7 +201,7 @@ export function computeVerdict(input: {
   // 4. IPQS fraud score
   if (input.ip.fraudScore != null) {
     const f = input.ip.fraudScore;
-    const pts = f >= 85 ? 12 : f >= 70 ? 6 : f < 30 ? -4 : 0;
+    const pts = f >= 85 ? (w.fraudscore_high ?? 12) : f >= 70 ? (w.fraudscore_mid ?? 6) : f < 30 ? (w.fraudscore_low ?? -4) : 0;
     s.push(sig("fraudscore", "IP fraud score", `${f}/100`, pts, f >= 70, true,
       f >= 85 ? "risk" : f >= 70 ? "warn" : "pass", "IPQualityScore reputation for this address."));
   }
@@ -141,7 +210,7 @@ export function computeVerdict(input: {
   if (declared && input.ip.country) {
     const mismatch = declared !== input.ip.country.toUpperCase();
     s.push(sig("geo", "Declared vs IP country", `${declared} vs ${input.ip.country.toUpperCase()}`,
-      mismatch ? 15 : -2, mismatch, true, mismatch ? "warn" : "pass",
+      mismatch ? (w.geo_mismatch ?? 15) : (w.geo_match ?? -2), mismatch, true, mismatch ? "warn" : "pass",
       mismatch ? "Candidate connects from a different country than declared." : "Location matches declared country."));
   } else {
     s.push(sig("geo", "Declared vs IP country", "not evaluated", 0, false, false, "info",
@@ -151,7 +220,7 @@ export function computeVerdict(input: {
   // 6. Relay / latency (overseas-access tell)
   if (typeof c.minLatencyMs === "number") {
     const l = c.minLatencyMs;
-    const pts = l >= 120 ? 15 : l >= 80 ? 7 : -2;
+    const pts = l >= 120 ? (w.latency_high ?? 15) : l >= 80 ? (w.latency_mid ?? 7) : (w.latency_low ?? -2);
     s.push(sig("latency", "Network round-trip latency", `${Math.round(l)} ms`, pts, l >= 120, true,
       l >= 120 ? "risk" : l >= 80 ? "warn" : "pass",
       l >= 120 ? "High latency suggests the session is relayed from far away." : "Latency within an expected range."));
@@ -165,7 +234,7 @@ export function computeVerdict(input: {
     const diff = Math.abs(expected - c.timezoneOffsetMin);
     const mismatch = diff > 180;
     s.push(sig("timezone", "Device timezone vs declared", `${c.timezone ?? c.timezoneOffsetMin + "m"}`,
-      mismatch ? 10 : 0, mismatch, true, mismatch ? "warn" : "pass",
+      mismatch ? (w.timezone_mismatch ?? 10) : 0, mismatch, true, mismatch ? "warn" : "pass",
       mismatch ? "Device clock timezone does not match the declared country." : "Device timezone consistent with declared country."));
   } else {
     s.push(sig("timezone", "Device timezone vs declared", "not evaluated", 0, false, false, "info",
@@ -175,7 +244,7 @@ export function computeVerdict(input: {
   // 8. Virtual camera (deepfake injection vector)
   if (c.cameraLabels && c.cameraLabels.length) {
     const v = c.virtualCameraLabels ?? [];
-    s.push(sig("vcam", "Virtual camera detected", v.length ? v.join(", ") : "none", v.length ? 22 : -2, v.length > 0, true,
+    s.push(sig("vcam", "Virtual camera detected", v.length ? v.join(", ") : "none", v.length ? (w.vcam_detected ?? 22) : (w.vcam_none ?? -2), v.length > 0, true,
       v.length ? "risk" : "pass",
       v.length ? "A virtual camera can inject pre-rendered/deepfake video into the call." : "Only physical camera(s) present."));
   } else {
@@ -186,7 +255,7 @@ export function computeVerdict(input: {
   // 9. Automation / headless
   if (typeof c.webdriver === "boolean") {
     s.push(sig("automation", "Browser automation / headless", c.webdriver ? "detected" : "no",
-      c.webdriver ? 15 : 0, c.webdriver, true, c.webdriver ? "risk" : "pass",
+      c.webdriver ? (w.automation ?? 15) : 0, c.webdriver, true, c.webdriver ? "risk" : "pass",
       c.webdriver ? "Session is driven by automation tooling." : "No automation flags."));
   }
 
@@ -194,33 +263,31 @@ export function computeVerdict(input: {
   if (c.livenessRan) {
     const live = c.livenessMotion === true;
     s.push(sig("liveness", "Live-presence (motion) check", live ? "live motion" : "static image",
-      live ? -8 : 15, !live, true, live ? "pass" : "risk",
+      live ? (w.liveness_live ?? -8) : (w.liveness_static ?? 15), !live, true, live ? "pass" : "risk",
       live ? "Camera feed showed natural motion (not a static photo)." : "No motion detected — possible static photo held to camera."));
   } else {
     s.push(sig("liveness", "Live-presence (motion) check", "not run", 0, false, false, "info", "Liveness check was skipped."));
   }
 
-  // 10b. Challenge-response liveness (on-device) — graded, harsh. A hard fail
-  // (no face / multiple faces / a missed challenge) forces the verdict up; minor
-  // quality flags (slow, erratic, abnormal blink) each deduct points.
+  // 10b. Challenge-response liveness (on-device) — graded, harsh.
   let livenessHardFail = false;
   const ch = c.challenge;
   if (ch?.ran) {
     if (!ch.faceWasPresent) {
       livenessHardFail = true;
-      s.push(sig("challenge", "Live challenge-response", "no live face", 40, true, true, "risk",
+      s.push(sig("challenge", "Live challenge-response", "no live face", w.challenge_no_face ?? 40, true, true, "risk",
         "No live face detected during the on-device challenges — photo / non-present candidate."));
     } else if (ch.multipleFaces) {
       livenessHardFail = true;
-      s.push(sig("challenge", "Live challenge-response", "multiple faces", 30, true, true, "risk",
+      s.push(sig("challenge", "Live challenge-response", "multiple faces", w.challenge_multiple_faces ?? 30, true, true, "risk",
         "More than one face present during the live challenge (off-camera help / impersonation)."));
     } else {
       const failed = ch.challengesTotal - ch.challengesPassed;
       const anomalies = ch.anomalies ?? [];
-      let pts = failed * 28 + anomalies.length * 8;
+      let pts = failed * (w.challenge_failed_per ?? 28) + anomalies.length * (w.challenge_anomaly_per ?? 8);
       if (failed > 0) livenessHardFail = true;
       const sev: Severity = pts >= 22 ? "risk" : pts > 0 ? "warn" : "pass";
-      if (pts === 0) pts = -15; // a clean, prompt, natural response earns trust
+      if (pts === 0) pts = w.challenge_passed ?? -15;
       const flags = anomalies.map((a) => ANOMALY_LABEL[a] ?? a);
       const value = failed > 0 ? `failed ${ch.challengesPassed}/${ch.challengesTotal}` : flags.length ? `passed, ${flags.length} flag(s)` : `passed ${ch.challengesPassed}/${ch.challengesTotal}`;
       const detail =
@@ -239,24 +306,22 @@ export function computeVerdict(input: {
   // 11. Email risk
   if (input.email.evaluated && input.email.valid) {
     if (input.email.disposable) {
-      s.push(sig("email", "Email reputation", "disposable domain", 10, true, true, "risk", "Disposable/temp-mail address."));
+      s.push(sig("email", "Email reputation", "disposable domain", w.email_disposable ?? 10, true, true, "risk", "Disposable/temp-mail address."));
     } else if (!input.email.hasMx) {
-      s.push(sig("email", "Email reputation", "no MX records", 8, true, true, "warn", "Domain cannot receive mail."));
+      s.push(sig("email", "Email reputation", "no MX records", w.email_no_mx ?? 8, true, true, "warn", "Domain cannot receive mail."));
     } else {
-      s.push(sig("email", "Email reputation", input.email.freemail ? "freemail" : "corporate", input.email.freemail ? 0 : -3,
+      s.push(sig("email", "Email reputation", input.email.freemail ? "freemail" : "corporate", input.email.freemail ? 0 : (w.email_corporate ?? -3),
         false, true, "pass", input.email.freemail ? "Consumer email provider." : "Corporate domain with valid mail."));
     }
   }
 
-  // 12. Deepfake content (Reality Defender). A confirmed AI-generated/manipulated
-  // face is near-conclusive fraud, so it carries heavy weight and, above a high
-  // confidence, forces the verdict to High-risk on its own.
+  // 12. Deepfake content (Reality Defender).
   let deepfakeOverride = false;
   if (input.deepfake.evaluated && input.deepfake.syntheticProbability != null) {
     const p = input.deepfake.syntheticProbability;
     const manipulated = p >= 0.6;
     if (p >= 0.7) deepfakeOverride = true;
-    const df = sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% AI-generated`, manipulated ? 50 : -6, manipulated, true,
+    const df = sig("deepfake", "Deepfake content analysis", `${Math.round(p * 100)}% AI-generated`, manipulated ? (w.deepfake_manipulated ?? 50) : (w.deepfake_authentic ?? -6), manipulated, true,
       manipulated ? "risk" : "pass", input.deepfake.note);
     df.info = { models: input.deepfake.models, requestId: input.deepfake.requestId, provider: input.deepfake.provider };
     s.push(df);
@@ -264,16 +329,43 @@ export function computeVerdict(input: {
     s.push(sig("deepfake", "Deepfake content analysis", "not evaluated", 0, false, false, "info", input.deepfake.note));
   }
 
+  // Feature 5: Behavioral biometrics
+  if (input.behavioral) {
+    const b = input.behavioral;
+    const scripted = b.pasteName === true && (b.focusBlurCount ?? 0) > 3 && (b.timeOnConsentMs ?? Infinity) < 8000;
+    const coaching = (b.focusBlurCount ?? 0) > 5;
+    if (scripted) {
+      s.push(sig("behavioral_scripted", "Automated interaction pattern", "detected",
+        w.behavioral_scripted ?? 15, true, true, "warn",
+        "Paste-detected, frequent tab-switches, and very fast consent completion suggest an automated or assisted session."));
+    }
+    if (coaching) {
+      s.push(sig("behavioral_coaching", "Coaching detected", `${b.focusBlurCount} focus/blur events`,
+        w.behavioral_coaching ?? 10, true, true, "warn",
+        "High number of tab focus/blur events during the camera step suggests off-screen coaching."));
+    }
+  }
+
   let score = Math.max(0, Math.min(100, s.reduce((a, x) => a + x.points, 0)));
-  let band: Verdict["band"] = score >= 45 ? "risk" : score >= 20 ? "review" : "pass";
-  // Deterministic override: a high-confidence deepfake is a hard fail.
+  let band: Verdict["band"] = score >= thresholds.review ? "risk" : score >= thresholds.pass ? "review" : "pass";
   if (deepfakeOverride) { band = "risk"; score = Math.max(score, 90); }
-  // A failed liveness challenge (missed action / no face / multiple faces) forces
-  // at least Review — a real, present person completes the random prompts.
-  if (livenessHardFail && band === "pass") { band = "review"; score = Math.max(score, 24); }
+  if (livenessHardFail && band === "pass") { band = "review"; score = Math.max(score, thresholds.pass + 4); }
   const label = band === "risk" ? "High fraud risk" : band === "review" ? "Review recommended" : "Likely a real, present candidate";
   const evaluated = s.filter((x) => x.evaluated).length;
   return { riskScore: score, band, label, confidencePct: Math.round((evaluated / s.length) * 100), signals: s };
+}
+
+export interface BehavioralSignals {
+  pasteName?: boolean;
+  focusBlurCount?: number;
+  timeOnConsentMs?: number;
+  timeOnCameraMs?: number;
+  mousePathLength?: number;
+  mouseDirectionChanges?: number;
+  scrollEventCount?: number;
+  totalScrollDistance?: number;
+  keystrokeCount?: number;
+  isTouchDevice?: boolean;
 }
 
 function sig(key: string, label: string, value: string, points: number, triggered: boolean, evaluated: boolean, severity: Severity, detail: string): Signal {
