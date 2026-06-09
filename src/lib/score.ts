@@ -25,8 +25,23 @@ export interface ClientSignals {
     challengesTotal: number;
     multipleFaces: boolean;
     faceWasPresent: boolean;
+    avgResponseMs?: number | null;
+    anomalies?: string[];
   };
 }
+
+const ANOMALY_LABEL: Record<string, string> = {
+  turn_no_response: "didn't turn head",
+  blink_no_response: "didn't blink",
+  closer_no_response: "didn't move closer",
+  turn_slow: "slow to turn",
+  blink_slow: "slow to blink",
+  closer_slow: "slow to move closer",
+  turn_weak: "head turn too slight",
+  blink_abnormal: "abnormal blink count",
+  closer_erratic: "approach not smooth/monotonic",
+  face_dropout: "face dropped out of frame",
+};
 
 export type Severity = "pass" | "info" | "warn" | "risk";
 
@@ -185,21 +200,36 @@ export function computeVerdict(input: {
     s.push(sig("liveness", "Live-presence (motion) check", "not run", 0, false, false, "info", "Liveness check was skipped."));
   }
 
-  // 10b. Challenge-response liveness (on-device, strongest live signal).
+  // 10b. Challenge-response liveness (on-device) — graded, harsh. A hard fail
+  // (no face / multiple faces / a missed challenge) forces the verdict up; minor
+  // quality flags (slow, erratic, abnormal blink) each deduct points.
+  let livenessHardFail = false;
   const ch = c.challenge;
   if (ch?.ran) {
-    if (ch.multipleFaces) {
-      s.push(sig("challenge", "Live challenge-response", "multiple faces", 18, true, true, "risk",
-        "More than one face was present during the live challenge (possible coaching/off-camera help)."));
-    } else if (!ch.faceWasPresent) {
-      s.push(sig("challenge", "Live challenge-response", "no live face", 25, true, true, "risk",
-        "No live face was detected while the on-device challenges ran — possible photo / non-present candidate."));
-    } else if (ch.passed) {
-      s.push(sig("challenge", "Live challenge-response", `passed ${ch.challengesPassed}/${ch.challengesTotal}`, -12, false, true, "pass",
-        "Candidate performed the random live actions (turn/blink/lean) — strong evidence of a real, present person."));
+    if (!ch.faceWasPresent) {
+      livenessHardFail = true;
+      s.push(sig("challenge", "Live challenge-response", "no live face", 40, true, true, "risk",
+        "No live face detected during the on-device challenges — photo / non-present candidate."));
+    } else if (ch.multipleFaces) {
+      livenessHardFail = true;
+      s.push(sig("challenge", "Live challenge-response", "multiple faces", 30, true, true, "risk",
+        "More than one face present during the live challenge (off-camera help / impersonation)."));
     } else {
-      s.push(sig("challenge", "Live challenge-response", `failed (${ch.challengesPassed}/${ch.challengesTotal})`, 28, true, true, "risk",
-        "Candidate did not complete the random live actions — common for static photos and real-time deepfakes."));
+      const failed = ch.challengesTotal - ch.challengesPassed;
+      const anomalies = ch.anomalies ?? [];
+      let pts = failed * 28 + anomalies.length * 8;
+      if (failed > 0) livenessHardFail = true;
+      const sev: Severity = pts >= 22 ? "risk" : pts > 0 ? "warn" : "pass";
+      if (pts === 0) pts = -15; // a clean, prompt, natural response earns trust
+      const flags = anomalies.map((a) => ANOMALY_LABEL[a] ?? a);
+      const value = failed > 0 ? `failed ${ch.challengesPassed}/${ch.challengesTotal}` : flags.length ? `passed, ${flags.length} flag(s)` : `passed ${ch.challengesPassed}/${ch.challengesTotal}`;
+      const detail =
+        failed > 0
+          ? `Did not complete ${failed} live action(s)${flags.length ? `; also: ${flags.join(", ")}` : ""}. Common for static photos and real-time deepfakes.`
+          : flags.length
+            ? `Live actions completed but with anomalies: ${flags.join(", ")}${ch.avgResponseMs ? ` (avg response ${Math.round(ch.avgResponseMs)}ms)` : ""}.`
+            : `Performed all random live actions cleanly and promptly${ch.avgResponseMs ? ` (avg ${Math.round(ch.avgResponseMs)}ms)` : ""} — strong evidence of a real, present person.`;
+      s.push(sig("challenge", "Live challenge-response", value, pts, pts > 0, true, sev, detail));
     }
   } else {
     s.push(sig("challenge", "Live challenge-response", "not evaluated", 0, false, false, "info",
@@ -238,6 +268,9 @@ export function computeVerdict(input: {
   let band: Verdict["band"] = score >= 45 ? "risk" : score >= 20 ? "review" : "pass";
   // Deterministic override: a high-confidence deepfake is a hard fail.
   if (deepfakeOverride) { band = "risk"; score = Math.max(score, 90); }
+  // A failed liveness challenge (missed action / no face / multiple faces) forces
+  // at least Review — a real, present person completes the random prompts.
+  if (livenessHardFail && band === "pass") { band = "review"; score = Math.max(score, 24); }
   const label = band === "risk" ? "High fraud risk" : band === "review" ? "Review recommended" : "Likely a real, present candidate";
   const evaluated = s.filter((x) => x.evaluated).length;
   return { riskScore: score, band, label, confidencePct: Math.round((evaluated / s.length) * 100), signals: s };

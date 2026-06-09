@@ -173,6 +173,8 @@ function VerifyStep({ token, data, reload }: { token: string; data: any; reload:
           challengesTotal: challenge.challengesTotal,
           multipleFaces: challenge.multipleFaces,
           faceWasPresent: challenge.faceWasPresent,
+          avgResponseMs: challenge.avgResponseMs,
+          anomalies: challenge.anomalies,
         },
       };
       const r = await fetch(`/api/candidate/${token}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientSignals, faceImage }) });
