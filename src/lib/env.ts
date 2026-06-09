@@ -18,6 +18,11 @@ export const env = {
   DIDIT_WORKFLOW_ID: process.env.DIDIT_WORKFLOW_ID ?? "",
   REALITY_DEFENDER_API_KEY: process.env.REALITY_DEFENDER_API_KEY ?? "",
   BIOMETRIC_RETENTION_DAYS: Number(process.env.BIOMETRIC_RETENTION_DAYS ?? "30"),
+  // How long the submit handler waits for deepfake analysis before degrading it to
+  // "not evaluated". Default is tuned for Vercel's FREE (Hobby) function budget so
+  // the candidate submit always returns. On Vercel Pro, raise this to ~45000 and
+  // bump `maxDuration` in the submit route to 60 to let Reality Defender finish.
+  DEEPFAKE_TIMEOUT_MS: Number(process.env.DEEPFAKE_TIMEOUT_MS ?? "8000"),
 };
 
 export const features = {

@@ -58,6 +58,7 @@ git branch -M main && git push -u origin main
    | `DIDIT_API_KEY` / `DIDIT_WORKFLOW_ID` | optional — real ID + liveness |
    | `REALITY_DEFENDER_API_KEY` | optional — deepfake scoring |
    | `BIOMETRIC_RETENTION_DAYS` | `30` |
+   | `DEEPFAKE_TIMEOUT_MS` | `8000` on free; `45000` on Vercel Pro |
    | `STRIPE_SECRET_KEY` | for billing + (optionally) Stripe Identity |
    | `STRIPE_WEBHOOK_SECRET` | from the webhook you create in Step 5 |
    | `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_SCALE` | your recurring Price IDs |
@@ -100,9 +101,21 @@ its own plan.
 
 ---
 
-## Deepfake analysis & Vercel function limits
+## Runs on Vercel FREE (Hobby) — deepfake degrades gracefully
 
-The candidate submit runs **Reality Defender** deepfake analysis on the captured frame (~15–40s). The route sets `maxDuration = 60`, which **requires the Vercel Pro plan** — Vercel **Hobby caps functions at 10s** and would time out the deepfake step (it degrades gracefully to "not evaluated", so everything else still works). Render/Railway/Fly have no such limit. For scale, move the deepfake step to a background job using RD's two-step API (`upload` → poll `getResult`) and have the result page poll.
+The candidate submit route is set to `maxDuration = 10` and caps the **Reality Defender**
+deepfake call at `DEEPFAKE_TIMEOUT_MS` (default **8s**), so it stays inside Vercel's free
+function budget. RD usually needs ~15–40s, so **on the free tier the deepfake signal will
+read "not evaluated"** and the verdict is built from all the other real signals (VPN/relay,
+liveness challenge, virtual-camera, timezone, email, ID). Nothing fails; you just don't get
+the deepfake score until you upgrade.
+
+**To enable full deepfake analysis later (Vercel Pro, ~$20/mo):**
+1. In `src/app/api/candidate/[token]/submit/route.ts`, change `export const maxDuration = 10` → `60`.
+2. Set `DEEPFAKE_TIMEOUT_MS=45000` in Vercel env vars. Redeploy.
+
+(Alternatively, host the app anywhere without a 10s cap — Render/Railway/Fly — and keep the
+higher values. For real scale, move deepfake to a background job using RD's two-step API.)
 
 ## Notes / gotchas
 

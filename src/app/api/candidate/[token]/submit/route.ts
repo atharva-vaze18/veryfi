@@ -12,9 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export const runtime = "nodejs";
-// Deepfake analysis (Reality Defender) can take ~15-40s; allow up to 60s.
-// On Vercel this requires the Pro plan (Hobby caps at 10s) — see docs/DEPLOY.md.
-export const maxDuration = 60;
+// 10s keeps this within Vercel's FREE (Hobby) function budget. The deepfake step
+// is capped by DEEPFAKE_TIMEOUT_MS (default 8s) so it degrades to "not evaluated"
+// instead of killing the request; every other signal still scores normally.
+// On Vercel Pro: raise this to 60 and set DEEPFAKE_TIMEOUT_MS=45000 to let
+// Reality Defender finish (it takes ~15-40s). See docs/DEPLOY.md.
+export const maxDuration = 10;
 
 // Writes a base64 data-URL image to a temp file for deepfake analysis. The frame
 // is transient — analyzed then deleted; never stored.

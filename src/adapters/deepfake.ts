@@ -32,10 +32,12 @@ export async function scoreDeepfake(filePath?: string | null): Promise<DeepfakeR
   }
   try {
     const rd = new RealityDefender({ apiKey: env.REALITY_DEFENDER_API_KEY });
-    // RD detect() uploads + polls; cap the wait so submit stays responsive.
+    // RD detect() uploads + polls; cap the wait so the submit handler always
+    // returns within the serverless function budget (see DEEPFAKE_TIMEOUT_MS —
+    // tuned low for Vercel's free tier; on timeout we degrade to "not evaluated").
     const result = (await Promise.race([
       rd.detect({ filePath }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("RD timeout")), 45_000)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("RD timeout")), env.DEEPFAKE_TIMEOUT_MS)),
     ])) as { status?: string; score?: number; requestId?: string; models?: DeepfakeModel[] };
 
     const score = typeof result.score === "number" ? result.score : null;
