@@ -21,7 +21,17 @@ function Inner() {
   const { id } = useParams<{ id: string }>();
   const [d, setD] = useState<Detail | null>(null);
 
-  useEffect(() => { fetch(`/api/verifications/${id}`).then((r) => r.json()).then(setD); }, [id]);
+  // Live: poll so a pending verification flips to its result automatically.
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try { const j = await (await fetch(`/api/verifications/${id}`)).json(); if (active) setD(j); } catch { /* keep polling */ }
+    };
+    load();
+    const iv = setInterval(() => { if (!document.hidden) load(); }, 5000);
+    window.addEventListener("focus", load);
+    return () => { active = false; clearInterval(iv); window.removeEventListener("focus", load); };
+  }, [id]);
   if (!d) return <p className="text-muted text-sm">Loading…</p>;
 
   if (d.status !== "complete") {

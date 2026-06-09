@@ -15,8 +15,21 @@ function Inner() {
   const [rows, setRows] = useState<Row[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
 
+  // Live: poll every 5s (and on tab focus) so results, deletions and counts
+  // update in real time without a manual refresh.
   useEffect(() => {
-    fetch("/api/verifications").then((r) => r.json()).then((d) => { setRows(d.verifications); setStats(d.stats); });
+    let active = true;
+    const load = async () => {
+      if (document.hidden) return;
+      try {
+        const d = await (await fetch("/api/verifications")).json();
+        if (active) { setRows(d.verifications); setStats(d.stats); }
+      } catch { /* transient — keep polling */ }
+    };
+    load();
+    const iv = setInterval(load, 5000);
+    window.addEventListener("focus", load);
+    return () => { active = false; clearInterval(iv); window.removeEventListener("focus", load); };
   }, []);
 
   async function del(id: string, name: string) {
@@ -45,7 +58,9 @@ function Inner() {
       <div className="panel overflow-hidden">
         <div className="px-5 py-3 border-b border-rule flex items-center justify-between">
           <span className="font-display text-ink">Recent</span>
-          <span className="label">{rows.length} records</span>
+          <span className="label inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-pass animate-pulse" /> live · {rows.length} records
+          </span>
         </div>
         {rows.length === 0 ? (
           <div className="px-5 py-12 text-center text-muted text-sm">
