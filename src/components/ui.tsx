@@ -20,7 +20,7 @@ export function Brand({ markSize = 26 }: { markSize?: number }) {
     <span className="inline-flex items-center gap-2.5">
       <OrbytMark size={markSize} />
       <span className="font-display font-semibold tracking-tight text-ink text-lg">
-        Orbyt <span className="text-muted font-normal">Verify</span>
+        Veryfi
       </span>
     </span>
   );

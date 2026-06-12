@@ -30,7 +30,7 @@ export const env = {
   SUPERADMIN_EMAILS: (process.env.SUPERADMIN_EMAILS ?? "vaze.atharva18@gmail.com").toLowerCase(),
   // Transactional email (password reset). Resend is simplest; optional.
   RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
-  EMAIL_FROM: process.env.EMAIL_FROM ?? "Orbyt Verify <onboarding@resend.dev>",
+  EMAIL_FROM: process.env.EMAIL_FROM ?? "Veryfi <onboarding@resend.dev>",
 };
 
 export const features = {

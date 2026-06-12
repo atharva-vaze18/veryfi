@@ -47,7 +47,7 @@ export default function Landing() {
         <div className="relative flex items-center gap-3">
           <OrbytMark size={42} />
           <div className="leading-tight">
-            <div className="font-display font-semibold text-2xl text-ink">Orbyt <span className="text-muted font-normal">Verify</span></div>
+            <div className="font-display font-semibold text-2xl text-ink">Veryfi</div>
             <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-accent/80 mt-1">Navigate Compliance. Accelerate Growth.</div>
           </div>
         </div>
