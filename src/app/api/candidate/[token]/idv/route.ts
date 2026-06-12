@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db";
 import { env, features } from "@/lib/env";
 import { createIdvSession, fetchIdvResult } from "@/adapters/identity";
 import { audit } from "@/lib/audit";
+import { linkState, linkDeadMessage } from "@/lib/token";
+import { rateLimit } from "@/lib/ratelimit";
+import { getClientIp } from "@/lib/request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +26,15 @@ export async function GET(_req: Request, { params }: { params: { token: string }
 // Starts a REAL Stripe Identity session when configured. When not configured,
 // returns enabled:false and the candidate flow skips the ID step honestly.
 export async function POST(req: Request, { params }: { params: { token: string } }) {
+  // IDV sessions cost real money per check — keep this strictly behind a live,
+  // un-submitted token and a tight rate limit.
+  const rl = rateLimit(`cand:idv:${params.token}:${getClientIp(req)}`, 10, 5 * 60_000);
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await prisma.verification.findUnique({ where: { token: params.token }, include: { consents: true } });
   if (!v) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+  if (v.status === "complete") return NextResponse.json({ error: "Already submitted" }, { status: 409 });
+  const state = linkState(v);
+  if (state !== "active") return NextResponse.json({ error: linkDeadMessage(state) }, { status: 410 });
 
   const parsed = Body.safeParse(await req.json().catch(() => ({ action: "start" })));
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });

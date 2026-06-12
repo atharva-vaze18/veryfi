@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db";
 import { resolveApiKey, ApiKeyError } from "@/lib/apikey";
 import { audit } from "@/lib/audit";
 import { env } from "@/lib/env";
+import { usageStatus } from "@/lib/billing";
+import { newCandidateToken, defaultLinkExpiry } from "@/lib/token";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +54,15 @@ export async function POST(req: Request) {
   const parsed = Create.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
+  // Same abuse + spend walls as the dashboard path — an API key must not be a
+  // side door around metering.
+  const rl = rateLimit(`vcreate:api:${orgId}`, 60, 60 * 60_000);
+  if (!rl.ok) return NextResponse.json({ error: `Rate limit exceeded — retry in ${rl.retryAfterSec}s.` }, { status: 429 });
+  const usage = await usageStatus(orgId);
+  if (usage.blocked) {
+    return NextResponse.json({ error: "Monthly quota exceeded", code: "quota_exceeded" }, { status: 402 });
+  }
+
   const v = await prisma.verification.create({
     data: {
       orgId,
@@ -59,6 +71,8 @@ export async function POST(req: Request) {
       roleContext: parsed.data.roleContext ?? "",
       declaredCountry: (parsed.data.declaredCountry ?? "").toUpperCase(),
       status: "pending",
+      token: newCandidateToken(),
+      expiresAt: defaultLinkExpiry(),
     },
   });
 

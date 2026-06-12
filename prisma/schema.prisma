@@ -60,11 +60,16 @@ model Verification {
   roleContext   String  @default("")
   // claimed location (country ISO) the candidate/recruiter asserts
   declaredCountry String @default("")
+  // Candidate link capability. Generated with crypto.randomBytes (not cuid) so it
+  // can't be predicted; expires and is revocable. See src/lib/token.ts.
   token         String  @unique @default(cuid())
-  status        String  @default("pending") // pending | consented | submitted | complete | expired
+  expiresAt     DateTime?
+  revokedAt     DateTime?
+  status        String  @default("pending") // pending | consented | processing | complete
 
   // --- results (populated on submit) ---
   riskScore     Int?     // 0..100 (higher = more likely fake/fraudulent)
+  scoreVersion  String?  // scoring-engine version that produced riskScore (explainability)
   band          String?  // pass | review | risk
   verdict       String?  // human label
   signalsJson   String?  // JSON array of evaluated signals

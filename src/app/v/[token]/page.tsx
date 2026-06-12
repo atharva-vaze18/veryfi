@@ -23,7 +23,7 @@ export default function CandidateFlow() {
     <div className="relative z-10 min-h-screen flex flex-col">
       <header className="border-b border-rule">
         <div className="max-w-md mx-auto px-5 h-14 flex items-center justify-between">
-          <span className="inline-flex items-center gap-2"><OrbytMark size={22} /><span className="font-display font-semibold text-ink">Orbyt <span className="text-muted font-normal">Verify</span></span></span>
+          <span className="inline-flex items-center gap-2"><OrbytMark size={22} /><span className="font-display font-semibold text-ink">Veryfi</span></span>
           <span className="label">Candidate check</span>
         </div>
       </header>
@@ -44,7 +44,7 @@ function Flow({ token, data, reload }: { token: string; data: any; reload: () =>
     stopBehavioralRef.current = stop as unknown as (() => ReturnType<typeof startCollecting>);
   }, []);
 
-  if (data.complete) return <Done id={data.id} />;
+  if (data.complete) return <Done />;
   const nextConsent = data.consents.find((c: any) => !c.signed);
   if (nextConsent) return <ConsentStep key={nextConsent.type} token={token} doc={nextConsent} reload={reload} />;
   return <VerifyStep token={token} data={data} reload={reload} stopBehavioral={stopBehavioralRef.current} />;
@@ -220,7 +220,7 @@ function VerifyStep({ token, data, reload, stopBehavioral }: { token: string; da
   }
 
 
-  if (result) return <Done id={data.id} />;
+  if (result) return <Done />;
 
   if (needsIdv) {
     return (
@@ -302,15 +302,14 @@ function VerifyStep({ token, data, reload, stopBehavioral }: { token: string; da
   );
 }
 
-function Done({ id }: { id?: string }) {
+// Receipt only — the verdict and signal weights are confidential to the hiring
+// team. The candidate never sees a score they could iterate against.
+function Done() {
   return (
     <div className="animate-fade-up text-center py-8">
       <div className="text-5xl mb-4">✓</div>
       <h1 className="font-display text-2xl text-ink mb-2">All done</h1>
       <p className="text-sm text-muted">Thanks — your verification is complete. You can close this window. The hiring team will follow up.</p>
-      {id && (
-        <a href={`/verify/${id}`} className="inline-block mt-6 btn-ghost text-xs">View result (recruiter) →</a>
-      )}
     </div>
   );
 }

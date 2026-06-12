@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
+import { newCandidateToken, defaultLinkExpiry } from "@/lib/token";
 
 export interface GreenhouseConfig {
   harvestApiKey: string;
@@ -89,6 +90,8 @@ export async function createVerificationForCandidate(
       candidateEmail: email,
       roleContext: application.jobs?.[0]?.name ?? "",
       status: "pending",
+      token: newCandidateToken(),
+      expiresAt: defaultLinkExpiry(),
     },
   });
 

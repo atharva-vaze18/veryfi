@@ -3,6 +3,11 @@ import type { EmailRisk } from "@/adapters/emailrisk";
 import type { IdvResult } from "@/adapters/identity";
 import type { DeepfakeResult } from "@/adapters/deepfake";
 
+// Scoring-engine version, persisted with every completed verification so a
+// historical score remains explainable after weights/thresholds change. Bump on
+// ANY change to DEFAULT_WEIGHTS, signal logic, or summarizeSignals overrides.
+export const SCORE_VERSION = "2026.06.1";
+
 // Signals captured in the candidate's browser (all real measurements).
 export interface ClientSignals {
   timezone?: string; // IANA, e.g. "America/Chicago"
@@ -385,8 +390,21 @@ export function deepfakeSignal(df: DeepfakeResult): Signal {
 // everything. Categorical overrides are re-derived from the signals themselves.
 // Per-org band thresholds (Feature 4) are honored; default to 20/45.
 export function summarizeSignals(s: Signal[], thresholds: { pass: number; review: number } = { pass: 20, review: 45 }): { riskScore: number; band: Verdict["band"]; label: string; confidencePct: number } {
-  let score = Math.max(0, Math.min(100, s.reduce((a, x) => a + x.points, 0)));
+  // Trust credits (negative points: verified ID, clean liveness, name match…) are
+  // capped so they can never MASK fraud evidence. Without the cap, a stolen-but-
+  // verifiable identity (-50 of trust) would fully absorb a VPN + datacenter +
+  // disposable-email stack (+45) and score a clean 0.
+  const positives = s.reduce((a, x) => a + Math.max(0, x.points), 0);
+  const negatives = s.reduce((a, x) => a + Math.min(0, x.points), 0);
+  const TRUST_CREDIT_CAP = -12;
+  let score = Math.max(0, Math.min(100, positives + Math.max(negatives, TRUST_CREDIT_CAP)));
   let band: Verdict["band"] = score >= thresholds.review ? "risk" : score >= thresholds.pass ? "review" : "pass";
+
+  // Any evaluated risk-severity signal (VPN, datacenter, virtual camera, automation,
+  // disposable email…) demands a human glance: floor the verdict at Review. Warn-level
+  // evidence alone can still pass. This is "route to review", never auto-rejection.
+  const riskTriggered = s.some((x) => x.evaluated && x.triggered && x.severity === "risk");
+  if (riskTriggered && band === "pass") { band = "review"; score = Math.max(score, thresholds.pass); }
 
   // A high-confidence deepfake is a hard fail on its own.
   const df = s.find((x) => x.key === "deepfake");

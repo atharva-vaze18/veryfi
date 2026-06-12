@@ -10,7 +10,8 @@ interface FrameUrl { key: string; url: string | null }
 
 interface Detail {
   candidateName: string; candidateEmail: string; roleContext: string; declaredCountry: string;
-  status: string; candidateLink: string; riskScore: number | null; band: string | null; verdict: string | null;
+  status: string; candidateLink: string; linkState: "active" | "expired" | "revoked"; expiresAt: string | null;
+  riskScore: number | null; band: string | null; verdict: string | null;
   confidencePct: number | null; idv: { status: string | null; provider: string | null; livenessPassed: boolean | null };
   observedCountry: string | null; signals: Signal[];
   frameStorageKeys: string[];
@@ -62,18 +63,42 @@ function Inner() {
     } finally { setSubmittingReview(false); }
   }
 
+  async function linkAction(action: "revoke" | "regenerate") {
+    const r = await fetch(`/api/verifications/${id}/link`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    if (r.ok) {
+      const j = await (await fetch(`/api/verifications/${id}`)).json();
+      setD(j);
+    }
+  }
+
   if (!d) return <p className="text-muted text-sm">Loading…</p>;
 
   if (d.status !== "complete") {
+    const dead = d.linkState !== "active";
     return (
       <div className="max-w-xl">
         <Link href="/dashboard" className="text-muted hover:text-accent text-sm mb-4 inline-block">← Verifications</Link>
         <h1 className="font-display text-2xl text-ink mb-1">{d.candidateName}</h1>
         <p className="text-muted text-sm mb-6">Awaiting the candidate. Share the link below — results appear here once they complete the check.</p>
         <div className="panel p-5 space-y-3">
-          <div className="label">Candidate link · status: {d.status}</div>
-          <code className="block font-mono text-xs bg-paper-3 border border-rule px-3 py-2 rounded break-all text-ink-2">{d.candidateLink}</code>
-          <button className="btn-ghost" onClick={() => navigator.clipboard?.writeText(d.candidateLink)}>Copy link</button>
+          <div className="label">
+            Candidate link · status: {d.status}
+            {d.linkState === "revoked" && <span className="text-risk"> · revoked</span>}
+            {d.linkState === "expired" && <span className="text-risk"> · expired</span>}
+            {d.linkState === "active" && d.expiresAt && <span> · expires {new Date(d.expiresAt).toLocaleDateString()}</span>}
+          </div>
+          {!dead && (
+            <code className="block font-mono text-xs bg-paper-3 border border-rule px-3 py-2 rounded break-all text-ink-2">{d.candidateLink}</code>
+          )}
+          <div className="flex items-center gap-2">
+            {!dead && <button className="btn-ghost" onClick={() => navigator.clipboard?.writeText(d.candidateLink)}>Copy link</button>}
+            {!dead && <button className="btn-ghost text-risk" onClick={() => linkAction("revoke")}>Revoke link</button>}
+            <button className="btn-ghost" onClick={() => linkAction("regenerate")}>{dead ? "Issue new link" : "Regenerate link"}</button>
+          </div>
         </div>
       </div>
     );

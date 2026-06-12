@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { CONSENT_DOCS } from "@/lib/consent";
 import { getClientIp, docHash } from "@/lib/request";
 import { audit } from "@/lib/audit";
+import { linkState, linkDeadMessage } from "@/lib/token";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
@@ -15,9 +17,13 @@ const Body = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
+  const rl = rateLimit(`cand:consent:${params.token}:${getClientIp(req)}`, 20, 5 * 60_000);
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await prisma.verification.findUnique({ where: { token: params.token } });
   if (!v) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
   if (v.status === "complete") return NextResponse.json({ error: "Already submitted" }, { status: 409 });
+  const state = linkState(v);
+  if (state !== "active") return NextResponse.json({ error: linkDeadMessage(state) }, { status: 410 });
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });

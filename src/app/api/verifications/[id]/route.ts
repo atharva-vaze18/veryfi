@@ -5,16 +5,31 @@ import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
 import { type Signal } from "@/lib/score";
 import { finalizeDeepfake } from "@/lib/deepfake-finalize";
+import { linkState } from "@/lib/token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Delete a verification (profile). Cascades to its consents.
+// Delete a verification (profile). Cascades to its consents, and removes any
+// session frames from storage so no media outlives the record.
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   const session = getSession();
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-  const v = await prisma.verification.findUnique({ where: { id: params.id }, select: { id: true, orgId: true } });
+  const v = await prisma.verification.findUnique({
+    where: { id: params.id },
+    select: { id: true, orgId: true, frameStorageKeys: true },
+  });
   if (!v || v.orgId !== session.orgId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (v.frameStorageKeys && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const keys = JSON.parse(v.frameStorageKeys) as string[];
+      if (keys.length) {
+        const { createClient } = await import("@supabase/supabase-js");
+        const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+        await supabase.storage.from("session-frames").remove(keys);
+      }
+    } catch { /* frames are best-effort cleanup; the DB row must still go */ }
+  }
   await prisma.verification.delete({ where: { id: params.id } });
   await audit({ orgId: session.orgId, actor: session.userId, action: "verification.deleted", entityType: "Verification", entityId: params.id });
   return NextResponse.json({ ok: true });
@@ -43,6 +58,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     declaredCountry: v.declaredCountry,
     status: v.status,
     candidateLink: `${env.APP_URL}/v/${v.token}`,
+    linkState: linkState(v),
+    expiresAt: v.expiresAt,
     riskScore,
     band,
     verdict,

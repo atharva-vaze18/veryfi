@@ -2,17 +2,27 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { features } from "@/lib/env";
 import { CONSENT_DOCS, CONSENT_ORDER } from "@/lib/consent";
+import { linkState, linkDeadMessage } from "@/lib/token";
+import { rateLimit } from "@/lib/ratelimit";
+import { getClientIp } from "@/lib/request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Candidate-facing state (no auth — token is the capability).
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
+export async function GET(req: Request, { params }: { params: { token: string } }) {
+  const rl = rateLimit(`cand:get:${params.token}:${getClientIp(req)}`, 60, 5 * 60_000);
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await prisma.verification.findUnique({
     where: { token: params.token },
     include: { consents: true },
   });
   if (!v) return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
+  // Completed runs stay viewable (receipt); otherwise dead links are rejected.
+  const state = linkState(v);
+  if (state !== "active" && v.status !== "complete") {
+    return NextResponse.json({ error: linkDeadMessage(state) }, { status: 410 });
+  }
   const signed = new Set(v.consents.map((c) => c.type));
   return NextResponse.json({
     id: v.id,

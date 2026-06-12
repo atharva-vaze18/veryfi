@@ -6,6 +6,8 @@ import { env } from "@/lib/env";
 import { audit } from "@/lib/audit";
 import { usageStatus } from "@/lib/billing";
 import { finalizeDeepfake } from "@/lib/deepfake-finalize";
+import { newCandidateToken, defaultLinkExpiry } from "@/lib/token";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +67,13 @@ export async function POST(req: Request) {
   const parsed = Create.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
+  // Abuse guard: one account (scripted or compromised) can't mint unlimited links /
+  // paid provider sessions in a burst. The monthly quota below is the spend wall.
+  const rl = rateLimit(`vcreate:${session.userId}`, 30, 60 * 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: `Too many verifications created — retry in ${rl.retryAfterSec}s.` }, { status: 429 });
+  }
+
   // Usage metering: block once the org is over its monthly quota (always enforced;
   // super-admins are unlimited).
   const usage = await usageStatus(session.orgId, session.email);
@@ -83,6 +92,8 @@ export async function POST(req: Request) {
       roleContext: parsed.data.roleContext ?? "",
       declaredCountry: (parsed.data.declaredCountry ?? "").toUpperCase(),
       status: "pending",
+      token: newCandidateToken(),
+      expiresAt: defaultLinkExpiry(),
     },
   });
   await audit({

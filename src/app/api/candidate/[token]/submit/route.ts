@@ -5,8 +5,10 @@ import { getIpIntel } from "@/adapters/ipintel";
 import { getEmailRisk } from "@/adapters/emailrisk";
 import { fetchIdvResult } from "@/adapters/identity";
 import { startDeepfake, pendingDeepfake, deepfakeUnavailable } from "@/adapters/deepfake";
-import { computeVerdict, detectVirtualCameras, type ClientSignals, type BehavioralSignals } from "@/lib/score";
+import { computeVerdict, detectVirtualCameras, SCORE_VERSION, type ClientSignals, type BehavioralSignals } from "@/lib/score";
 import { features } from "@/lib/env";
+import { linkState, linkDeadMessage } from "@/lib/token";
+import { rateLimit } from "@/lib/ratelimit";
 import { audit } from "@/lib/audit";
 import { deliverWebhook } from "@/lib/webhook";
 import { writeFile, unlink } from "node:fs/promises";
@@ -35,14 +37,30 @@ async function writeFrameToTemp(dataUrl: string | undefined, token: string): Pro
 }
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
+  const rl = rateLimit(`cand:submit:${params.token}:${getClientIp(req)}`, 10, 5 * 60_000);
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await prisma.verification.findUnique({ where: { token: params.token }, include: { consents: true } });
   if (!v) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
   if (v.status === "complete") return NextResponse.json({ error: "Already submitted" }, { status: 409 });
+  const state = linkState(v);
+  if (state !== "active") return NextResponse.json({ error: linkDeadMessage(state) }, { status: 410 });
 
   const signed = new Set(v.consents.map((c) => c.type));
   if (!signed.has("DATA_PROCESSING") || !signed.has("BIOMETRIC")) {
     return NextResponse.json({ error: "All consents must be signed first" }, { status: 409 });
   }
+
+  // Idempotency: atomically claim the verification. Two concurrent submits (double
+  // click, refresh-retry, scripted replay) race here and exactly one wins; the
+  // loser sees the same 409 as a late duplicate. On any failure below, the claim
+  // is released so the candidate can legitimately retry without a new link.
+  const claim = await prisma.verification.updateMany({
+    where: { id: v.id, status: { notIn: ["complete", "processing"] } },
+    data: { status: "processing" },
+  });
+  if (claim.count === 0) return NextResponse.json({ error: "Already submitted" }, { status: 409 });
+
+  try {
 
   const body = (await req.json().catch(() => ({}))) as { clientSignals?: ClientSignals & { behavioral?: BehavioralSignals }; faceImage?: string; sessionFrames?: string[] };
   const client: ClientSignals = body.clientSignals ?? {};
@@ -106,6 +124,7 @@ export async function POST(req: Request, { params }: { params: { token: string }
     data: {
       status: "complete",
       riskScore: verdict.riskScore,
+      scoreVersion: SCORE_VERSION,
       band: verdict.band,
       verdict: verdict.label,
       signalsJson: JSON.stringify(verdict.signals),
@@ -156,10 +175,16 @@ export async function POST(req: Request, { params }: { params: { token: string }
     }).catch(() => {});
   }
 
-  return NextResponse.json({
-    band: verdict.band,
-    riskScore: verdict.riskScore,
-    label: verdict.label,
-    confidencePct: verdict.confidencePct,
-  });
+  // Receipt only. The verdict, score and signal weights are confidential to the
+  // hiring team — returning them here would hand a fraudster an oracle to iterate
+  // against until they pass.
+  return NextResponse.json({ ok: true, status: "complete" });
+  } catch (e) {
+    // Release the idempotency claim so a genuine technical failure is retryable
+    // with the same link (and without double billing — usage counts creations).
+    await prisma.verification
+      .updateMany({ where: { id: v.id, status: "processing" }, data: { status: "consented" } })
+      .catch(() => {});
+    return NextResponse.json({ error: "Verification could not be completed — please try again." }, { status: 500 });
+  }
 }
