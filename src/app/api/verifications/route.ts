@@ -22,23 +22,46 @@ const Create = z.object({
   sendInvite: z.boolean().optional().default(true),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = getSession();
   if (!session) return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-  const rows = await prisma.verification.findMany({
-    where: { orgId: session.orgId },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-  });
+
+  const url = new URL(req.url);
+  const page = Math.max(1, Number(url.searchParams.get("page") ?? "1") || 1);
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "25") || 25));
+  const bandParam = url.searchParams.get("band");
+  const statusParam = url.searchParams.get("status");
+  const search = (url.searchParams.get("search") ?? "").trim();
+
+  const where: Record<string, unknown> = { orgId: session.orgId };
+  if (bandParam && ["pass", "review", "risk"].includes(bandParam)) where.band = bandParam;
+  if (statusParam && ["pending", "consented", "processing", "complete", "expired"].includes(statusParam)) {
+    where.status = statusParam;
+  }
+  if (search) {
+    where.OR = [
+      { candidateName: { contains: search, mode: "insensitive" } },
+      { candidateEmail: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.verification.count({ where }),
+    prisma.verification.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
   // Resolve any pending deepfake analyses (async pipeline) — capped so a poll stays fast.
   const pending = rows.filter((r) => r.deepfakeRequestId).slice(0, 5);
   if (pending.length) {
     await Promise.all(pending.map((r) => finalizeDeepfake(r).catch(() => null)));
-    if (pending.length) {
-      const refreshed = await prisma.verification.findMany({ where: { id: { in: pending.map((r) => r.id) } } });
-      const byId = new Map(refreshed.map((r) => [r.id, r]));
-      for (let i = 0; i < rows.length; i++) { const u = byId.get(rows[i]!.id); if (u) rows[i] = u; }
-    }
+    const refreshed = await prisma.verification.findMany({ where: { id: { in: pending.map((r) => r.id) } } });
+    const byId = new Map(refreshed.map((r) => [r.id, r]));
+    for (let i = 0; i < rows.length; i++) { const u = byId.get(rows[i]!.id); if (u) rows[i] = u; }
   }
   const list = rows.map((v) => ({
     id: v.id,
@@ -52,16 +75,23 @@ export async function GET() {
     createdAt: v.createdAt,
     completedAt: v.completedAt,
   }));
-  const completed = list.filter((v) => v.band);
-  const stats = {
-    total: list.length,
-    pending: list.filter((v) => v.status !== "complete").length,
-    thisMonth: list.filter((v) => new Date(v.createdAt).getMonth() === new Date().getMonth()).length,
-    flagged: list.filter((v) => v.band === "risk").length,
-    review: list.filter((v) => v.band === "review").length,
-    pass: list.filter((v) => v.band === "pass").length,
-  };
-  return NextResponse.json({ verifications: list, stats });
+
+  // Stats reflect the full org, not the current page — recruiters need the
+  // headline numbers even when they're filtering down.
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const [pendingCount, thisMonthCount, flaggedCount, reviewCount, passCount] = await Promise.all([
+    prisma.verification.count({ where: { orgId: session.orgId, status: { not: "complete" } } }),
+    prisma.verification.count({ where: { orgId: session.orgId, createdAt: { gte: monthStart } } }),
+    prisma.verification.count({ where: { orgId: session.orgId, band: "risk" } }),
+    prisma.verification.count({ where: { orgId: session.orgId, band: "review" } }),
+    prisma.verification.count({ where: { orgId: session.orgId, band: "pass" } }),
+  ]);
+
+  return NextResponse.json({
+    verifications: list,
+    stats: { total, pending: pendingCount, thisMonth: thisMonthCount, flagged: flaggedCount, review: reviewCount, pass: passCount },
+    page: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+  });
 }
 
 export async function POST(req: Request) {
