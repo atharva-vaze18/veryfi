@@ -35,6 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     { href: "/dashboard/settings/scoring", label: "Scoring" },
     { href: "/settings/team", label: "Team" },
     { href: "/settings/billing", label: "Billing" },
+    { href: "/dashboard/settings", label: "Account" },
   ];
   const overQuota = usage && usage.metered && usage.usage >= usage.quota;
   return (

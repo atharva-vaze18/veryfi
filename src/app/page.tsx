@@ -22,6 +22,8 @@ export default function Landing() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mfaPending, setMfaPending] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
 
   useEffect(() => {
     fetch("/api/auth/me").then((r) => { if (r.ok) router.replace("/dashboard"); });
@@ -34,7 +36,23 @@ export default function Landing() {
       const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
       const body = mode === "signup" ? { orgName, name, email, password } : { email, password };
       const r = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error((await r.json()).error ?? (mode === "signup" ? "Sign up failed" : "Login failed"));
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? (mode === "signup" ? "Sign up failed" : "Login failed"));
+      if (j.mfaRequired) { setMfaPending(true); return; }
+      router.replace("/dashboard");
+    } catch (e2) { setErr((e2 as Error).message); } finally { setBusy(false); }
+  }
+
+  async function submitMfa(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null); setBusy(true);
+    try {
+      const r = await fetch("/api/auth/mfa/challenge", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: mfaCode.trim() }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error === "invalid_code" ? "That code didn't match — try the next one." : (j.error ?? "MFA challenge failed"));
       router.replace("/dashboard");
     } catch (e2) { setErr((e2 as Error).message); } finally { setBusy(false); }
   }
@@ -83,8 +101,16 @@ export default function Landing() {
             <button type="button" onClick={() => { setMode("signup"); setErr(null); }}
               className={`flex-1 py-1.5 rounded-md transition-colors ${mode === "signup" ? "bg-paper text-ink shadow-sm" : "text-muted hover:text-ink"}`}>Create account</button>
           </div>
-          <h2 className="font-display text-2xl mb-1 text-ink">{mode === "signup" ? "Start verifying" : "Welcome back"}</h2>
-          <p className="text-muted text-sm mb-7">{mode === "signup" ? "Free plan — 25 verifications/month, no card required." : "Recruiter / security console."}</p>
+          <h2 className="font-display text-2xl mb-1 text-ink">{mfaPending ? "Two-factor required" : mode === "signup" ? "Start verifying" : "Welcome back"}</h2>
+          <p className="text-muted text-sm mb-7">{mfaPending ? "Enter the 6-digit code from your authenticator app — or a backup code." : mode === "signup" ? "Free plan — 25 verifications/month, no card required." : "Recruiter / security console."}</p>
+          {mfaPending ? (
+            <form onSubmit={submitMfa} className="space-y-3">
+              <div><label className="label block mb-1">Authenticator code</label>
+                <input className="field" value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} autoFocus placeholder="123456" autoComplete="one-time-code" /></div>
+              {err && <div className="text-risk text-xs border border-risk/30 bg-risk/5 px-3 py-2 rounded">{err}</div>}
+              <button className="btn-primary w-full" disabled={busy || mfaCode.length < 6}>{busy ? "Verifying…" : "Sign in →"}</button>
+            </form>
+          ) : (
           <form onSubmit={submit} className="space-y-3">
             {mode === "signup" && (
               <>
@@ -101,14 +127,17 @@ export default function Landing() {
             {err && <div className="text-risk text-xs border border-risk/30 bg-risk/5 px-3 py-2 rounded">{err}</div>}
             <button className="btn-primary w-full" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account →" : "Sign in"}</button>
           </form>
-          {mode === "signin" && (
+          )}
+          {!mfaPending && mode === "signin" && (
             <div className="mt-3 text-right"><Link href="/forgot" className="text-xs text-muted hover:text-accent">Forgot password?</Link></div>
           )}
+          {!mfaPending && (
           <div className="mt-6 text-xs text-muted">
             {mode === "signup"
               ? <>Already have an account? <button onClick={() => setMode("signin")} className="text-accent">Sign in</button></>
               : <>New here? <button onClick={() => setMode("signup")} className="text-accent">Create an account</button></>}
           </div>
+          )}
         </div>
       </div>
     </div>
