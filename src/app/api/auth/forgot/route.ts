@@ -19,7 +19,7 @@ const Body = z.object({ email: z.string().email() });
 // single-use, hashed token link is emailed.
 export async function POST(req: Request) {
   const ip = getClientIp(req);
-  const rl = rateLimit(`forgot:${ip}`, 5, 10 * 60_000);
+  const rl = await rateLimit(`forgot:${ip}`, 5, 10 * 60_000);
   if (!rl.ok) return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 });
 
   const parsed = Body.safeParse(await req.json().catch(() => null));

@@ -28,7 +28,7 @@ export async function GET(_req: Request, { params }: { params: { token: string }
 export async function POST(req: Request, { params }: { params: { token: string } }) {
   // IDV sessions cost real money per check — keep this strictly behind a live,
   // un-submitted token and a tight rate limit.
-  const rl = rateLimit(`cand:idv:${params.token}:${getClientIp(req)}`, 10, 5 * 60_000);
+  const rl = await rateLimit(`cand:idv:${params.token}:${getClientIp(req)}`, 10, 5 * 60_000);
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await prisma.verification.findUnique({ where: { token: params.token }, include: { consents: true } });
   if (!v) return NextResponse.json({ error: "Invalid link" }, { status: 404 });

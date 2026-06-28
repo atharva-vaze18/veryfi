@@ -72,7 +72,7 @@ export async function POST(req: Request) {
 
   // Abuse guard: one account (scripted or compromised) can't mint unlimited links /
   // paid provider sessions in a burst. The monthly quota below is the spend wall.
-  const rl = rateLimit(`vcreate:${session.userId}`, 30, 60 * 60_000);
+  const rl = await rateLimit(`vcreate:${session.userId}`, 30, 60 * 60_000);
   if (!rl.ok) {
     return NextResponse.json({ error: `Too many verifications created — retry in ${rl.retryAfterSec}s.` }, { status: 429 });
   }

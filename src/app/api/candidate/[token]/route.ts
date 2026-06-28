@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 // Candidate-facing state (no auth — token is the capability).
 export async function GET(req: Request, { params }: { params: { token: string } }) {
-  const rl = rateLimit(`cand:get:${params.token}:${getClientIp(req)}`, 60, 5 * 60_000);
+  const rl = await rateLimit(`cand:get:${params.token}:${getClientIp(req)}`, 60, 5 * 60_000);
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await prisma.verification.findUnique({
     where: { token: params.token },

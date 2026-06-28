@@ -14,7 +14,7 @@ const Body = z.object({ token: z.string().min(16), password: z.string().min(8, "
 // Complete a password reset with the emailed token. Token is hashed in the DB,
 // single-use, and expires after 1 hour.
 export async function POST(req: Request) {
-  const rl = rateLimit(`reset:${getClientIp(req)}`, 10, 10 * 60_000);
+  const rl = await rateLimit(`reset:${getClientIp(req)}`, 10, 10 * 60_000);
   if (!rl.ok) return NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
 
   const parsed = Body.safeParse(await req.json().catch(() => null));

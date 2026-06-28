@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 
   // Same abuse + spend walls as the dashboard path — an API key must not be a
   // side door around metering.
-  const rl = rateLimit(`vcreate:api:${orgId}`, 60, 60 * 60_000);
+  const rl = await rateLimit(`vcreate:api:${orgId}`, 60, 60 * 60_000);
   if (!rl.ok) return NextResponse.json({ error: `Rate limit exceeded — retry in ${rl.retryAfterSec}s.` }, { status: 429 });
   const usage = await usageStatus(orgId);
   if (usage.blocked) {

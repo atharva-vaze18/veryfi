@@ -63,7 +63,7 @@ async function writeFrameToTemp(dataUrl: string | undefined, token: string): Pro
 }
 
 export async function POST(req: Request, { params }: { params: { token: string } }) {
-  const rl = rateLimit(`cand:submit:${params.token}:${getClientIp(req)}`, 10, 5 * 60_000);
+  const rl = await rateLimit(`cand:submit:${params.token}:${getClientIp(req)}`, 10, 5 * 60_000);
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const v = await prisma.verification.findUnique({ where: { token: params.token }, include: { consents: true } });
   if (!v) return NextResponse.json({ error: "Invalid link" }, { status: 404 });

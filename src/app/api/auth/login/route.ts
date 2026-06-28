@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   // Throttle brute force: max 10 attempts per IP+email per 5 minutes.
   const ip = getClientIp(req);
-  const rl = rateLimit(`login:${ip}:${parsed.data.email.toLowerCase()}`, 10, 5 * 60_000);
+  const rl = await rateLimit(`login:${ip}:${parsed.data.email.toLowerCase()}`, 10, 5 * 60_000);
   if (!rl.ok) {
     return NextResponse.json({ error: "Too many attempts. Try again in a few minutes." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   }
