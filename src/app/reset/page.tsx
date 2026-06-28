@@ -30,7 +30,7 @@ function Inner() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Could not reset password");
       setDone(true);
-      setTimeout(() => router.replace("/"), 1800);
+      setTimeout(() => router.replace("/auth"), 1800);
     } catch (e2) { setErr((e2 as Error).message); } finally { setBusy(false); }
   }
 

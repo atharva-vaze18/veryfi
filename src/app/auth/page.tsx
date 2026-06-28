@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { OrbytMark } from "@/components/ui";
 
 const FEATURES = [
@@ -15,7 +15,9 @@ type Mode = "signin" | "signup";
 
 export default function Landing() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("signin");
+  const search = useSearchParams();
+  const initialMode: Mode = search.get("mode") === "signup" ? "signup" : "signin";
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [orgName, setOrgName] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

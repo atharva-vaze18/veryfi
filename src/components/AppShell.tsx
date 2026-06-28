@@ -16,13 +16,13 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     fetch("/api/auth/me").then(async (r) => {
-      if (!r.ok) { router.replace("/"); return; }
+      if (!r.ok) { router.replace("/auth"); return; }
       setMe((await r.json()).user); setLoading(false);
     });
     fetch("/api/billing").then(async (r) => { if (r.ok) setUsage(await r.json()); }).catch(() => {});
   }, [router, pathname]);
 
-  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); router.replace("/"); }
+  async function logout() { await fetch("/api/auth/logout", { method: "POST" }); router.replace("/auth"); }
 
   if (loading) return <div className="p-10 text-muted text-sm">Loading…</div>;
 
