@@ -28,9 +28,13 @@ export const env = {
   // Super-admin: this account always has owner powers, unlimited quota, and can't
   // be removed or walled. Comma-separated emails; defaults to the founder.
   SUPERADMIN_EMAILS: (process.env.SUPERADMIN_EMAILS ?? "vaze.atharva18@gmail.com").toLowerCase(),
-  // Transactional email (password reset). Resend is simplest; optional.
+  // Transactional email (password reset, candidate invite, recruiter notification).
+  // Resend (https://resend.com) — free tier. Set RESEND_FROM_EMAIL to an address on
+  // a domain you've verified in the Resend dashboard, e.g. noreply@veryfi.co.
+  // EMAIL_FROM is kept as a back-compat alias of RESEND_FROM_EMAIL.
   RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
-  EMAIL_FROM: process.env.EMAIL_FROM ?? "Veryfi <onboarding@resend.dev>",
+  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL ?? process.env.EMAIL_FROM ?? "Veryfi <onboarding@resend.dev>",
+  EMAIL_FROM: process.env.RESEND_FROM_EMAIL ?? process.env.EMAIL_FROM ?? "Veryfi <onboarding@resend.dev>",
 };
 
 export const features = {

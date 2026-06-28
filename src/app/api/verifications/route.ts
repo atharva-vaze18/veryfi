@@ -8,6 +8,7 @@ import { usageStatus } from "@/lib/billing";
 import { finalizeDeepfake } from "@/lib/deepfake-finalize";
 import { newCandidateToken, defaultLinkExpiry } from "@/lib/token";
 import { rateLimit } from "@/lib/ratelimit";
+import { sendCandidateInvite } from "@/lib/email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,8 @@ const Create = z.object({
   candidateEmail: z.string().email(),
   roleContext: z.string().max(200).optional().default(""),
   declaredCountry: z.string().max(2).optional().default(""),
+  // Opt-out: defaults to sending the candidate their link by email.
+  sendInvite: z.boolean().optional().default(true),
 });
 
 export async function GET() {
@@ -104,8 +107,30 @@ export async function POST(req: Request) {
     entityId: v.id,
     payload: { candidateEmail: v.candidateEmail },
   });
+
+  const candidateLink = `${env.APP_URL}/v/${v.token}`;
+
+  // Fire-and-forget invite. Errors are logged + audited but never block the
+  // response — the recruiter can always copy the link from the UI as a fallback.
+  if (parsed.data.sendInvite) {
+    const org = await prisma.org.findUnique({ where: { id: session.orgId }, select: { name: true } });
+    sendCandidateInvite(v.candidateEmail, v.candidateName, candidateLink, org?.name ?? "Your hiring team")
+      .then((r) => {
+        if (!r.ok) console.error("candidate_invite_email_failed", r.error);
+        return audit({
+          orgId: session.orgId,
+          actor: session.userId,
+          action: "verification.invite_sent",
+          entityType: "Verification",
+          entityId: v.id,
+          payload: { to: v.candidateEmail, delivered: r.ok, error: r.ok ? null : r.error },
+        });
+      })
+      .catch((e) => console.error("candidate_invite_audit_failed", (e as Error).message));
+  }
+
   return NextResponse.json(
-    { id: v.id, token: v.token, candidateLink: `${env.APP_URL}/v/${v.token}` },
+    { id: v.id, token: v.token, candidateLink },
     { status: 201 },
   );
 }

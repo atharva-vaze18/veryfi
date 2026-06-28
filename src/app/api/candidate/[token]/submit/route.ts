@@ -6,11 +6,12 @@ import { getEmailRisk } from "@/adapters/emailrisk";
 import { fetchIdvResult } from "@/adapters/identity";
 import { startDeepfake, pendingDeepfake, deepfakeUnavailable } from "@/adapters/deepfake";
 import { computeVerdict, detectVirtualCameras, SCORE_VERSION, type ClientSignals, type BehavioralSignals } from "@/lib/score";
-import { features } from "@/lib/env";
+import { env, features } from "@/lib/env";
 import { linkState, linkDeadMessage } from "@/lib/token";
 import { rateLimit } from "@/lib/ratelimit";
 import { audit } from "@/lib/audit";
 import { deliverWebhook } from "@/lib/webhook";
+import { sendVerificationComplete } from "@/lib/email";
 import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +26,31 @@ export const maxDuration = 10;
 
 // Writes a base64 data-URL image to a temp file for deepfake analysis. The frame
 // is transient — analyzed then deleted; never stored.
+// Fire-and-forget: emails every owner/admin in the org. Each send is audited so
+// delivery failures show up in the AuditEvent log without ever blocking the
+// candidate's response.
+async function notifyRecruitersOfCompletion(orgId: string, verificationId: string, band: "pass" | "review" | "risk") {
+  const recipients = await prisma.user.findMany({
+    where: { orgId, role: { in: ["owner", "admin"] } },
+    select: { id: true, email: true, name: true },
+  });
+  const verificationUrl = `${env.APP_URL}/verify/${verificationId}`;
+  await Promise.all(
+    recipients.map(async (u) => {
+      const r = await sendVerificationComplete(u.email, u.name, band, verificationUrl);
+      if (!r.ok) console.error("verification_complete_email_failed", r.error);
+      await audit({
+        orgId,
+        actor: "system",
+        action: "verification.notified_recruiter",
+        entityType: "Verification",
+        entityId: verificationId,
+        payload: { to: u.email, delivered: r.ok, error: r.ok ? null : r.error },
+      }).catch(() => {});
+    }),
+  );
+}
+
 async function writeFrameToTemp(dataUrl: string | undefined, token: string): Promise<string | null> {
   if (!dataUrl) return null;
   const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/i.exec(dataUrl);
@@ -174,6 +200,12 @@ export async function POST(req: Request, { params }: { params: { token: string }
       signals: verdict.signals,
     }).catch(() => {});
   }
+
+  // Recruiter completion email. There's no creator-per-verification on the
+  // schema, so notify owners + admins of the org (typically a small set).
+  notifyRecruitersOfCompletion(v.orgId, v.id, verdict.band).catch((e) =>
+    console.error("verification_complete_email_dispatch_failed", (e as Error).message),
+  );
 
   // Receipt only. The verdict, score and signal weights are confidential to the
   // hiring team — returning them here would hand a fraudster an oracle to iterate
