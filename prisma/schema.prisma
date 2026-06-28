@@ -175,12 +175,16 @@ model ApiKey {
 
 model Integration {
   id        String   @id @default(cuid())
-  orgId     String   @unique
-  provider  String // "greenhouse"
-  config    String // JSON: {harvestApiKey, webhookSecret, triggerStageId, jobIds[]}
+  orgId     String
+  provider  String // "greenhouse" | "lever"
+  config    String // JSON: provider-specific config blob
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  // One row per (org, provider) — lets an org connect both Greenhouse and Lever
+  // simultaneously. Originally orgId was @unique (single integration per org);
+  // expanded to composite for multi-ATS support.
+  @@unique([orgId, provider])
   @@index([orgId])
 }
 
