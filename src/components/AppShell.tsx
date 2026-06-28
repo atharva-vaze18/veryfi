@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { Brand } from "./ui";
 
-interface Me { name: string; email: string; role?: string; orgName?: string }
+interface Me { name: string; email: string; role?: string; orgName?: string; emailVerified?: boolean }
 interface Usage { usage: number; quota: number; plan: string; metered: boolean }
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -67,7 +67,39 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
+      {me && me.emailVerified === false && <UnverifiedBanner email={me.email} />}
       <main className="mx-auto max-w-[1180px] px-6 py-8 animate-fade-up">{children}</main>
+    </div>
+  );
+}
+
+function UnverifiedBanner({ email }: { email: string }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  async function resend() {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch("/api/auth/resend-verification", { method: "POST" });
+      if (r.ok) setMsg("Verification email sent. Check your inbox.");
+      else if (r.status === 429) setMsg("Too many requests. Try again later.");
+      else setMsg("Could not send email. Try again in a minute.");
+    } catch { setMsg("Network error."); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="border-b border-review/30 bg-review/5">
+      <div className="mx-auto max-w-[1180px] px-6 py-2.5 flex items-center justify-between gap-4 text-sm">
+        <div className="text-ink">
+          <span className="font-mono text-xs uppercase text-review mr-2">unverified</span>
+          Check your inbox to verify <b>{email}</b> before sending candidate links.
+        </div>
+        <div className="flex items-center gap-3">
+          {msg && <span className="text-xs text-muted">{msg}</span>}
+          <button onClick={resend} disabled={busy} className="btn-ghost text-xs py-1">
+            {busy ? "Sending…" : "Resend email"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

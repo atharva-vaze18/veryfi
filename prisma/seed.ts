@@ -31,7 +31,17 @@ async function main() {
 
   const org = await prisma.org.create({ data: { name: orgName } });
   await prisma.user.create({
-    data: { orgId: org.id, email, name: email.split("@")[0]!, role: "owner", passwordHash: await bcrypt.hash(password, 10), lastLoginAt: null },
+    data: {
+      orgId: org.id,
+      email,
+      name: email.split("@")[0]!,
+      role: "owner",
+      passwordHash: await bcrypt.hash(password, 10),
+      lastLoginAt: null,
+      // Seed users skip email verification so the bootstrap admin can log in
+      // immediately on a fresh deploy without first round-tripping through Resend.
+      emailVerifiedAt: new Date(),
+    },
   });
   console.log(`\n✓ Created first admin.\n  Org:   ${orgName}\n  Login: ${email}\n`);
 }

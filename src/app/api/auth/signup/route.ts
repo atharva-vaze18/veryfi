@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import crypto from "node:crypto";
 import { prisma } from "@/lib/db";
 import { hashPassword, signSession, setSessionCookie } from "@/lib/auth";
 import { planFor } from "@/lib/plans";
 import { audit } from "@/lib/audit";
+import { sendEmailVerification } from "@/lib/email";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +34,10 @@ export async function POST(req: Request) {
   const org = await prisma.org.create({
     data: { name: orgName, plan: free.id, monthlyQuota: free.monthlyQuota },
   });
+  // 24-hour single-use email-verification token. Stored plaintext (limited
+  // blast radius: one token per user, single-use, time-boxed, useless without
+  // an active account on the same email).
+  const verifyToken = crypto.randomBytes(32).toString("base64url");
   const user = await prisma.user.create({
     data: {
       orgId: org.id,
@@ -39,6 +46,8 @@ export async function POST(req: Request) {
       role: "owner",
       passwordHash: await hashPassword(password),
       lastLoginAt: new Date(),
+      emailVerifyToken: verifyToken,
+      emailVerifyTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60_000),
     },
   });
 
@@ -51,7 +60,31 @@ export async function POST(req: Request) {
     payload: { orgName, ownerEmail: lowerEmail },
   });
 
-  const session = { userId: user.id, orgId: org.id, email: user.email, name: user.name, role: user.role };
+  // Fire-and-forget verification email. Failure is audited but never blocks
+  // the response — user can request a resend from the dashboard banner.
+  const verifyUrl = `${env.APP_URL}/api/auth/verify-email?token=${verifyToken}`;
+  sendEmailVerification(lowerEmail, verifyUrl)
+    .then((r) => {
+      if (!r.ok) console.error("email_verification_send_failed", r.error);
+      return audit({
+        orgId: org.id,
+        actor: user.id,
+        action: "auth.verification_email_sent",
+        entityType: "User",
+        entityId: user.id,
+        payload: { delivered: r.ok, error: r.ok ? null : r.error },
+      });
+    })
+    .catch((e) => console.error("email_verification_audit_failed", (e as Error).message));
+
+  const session = {
+    userId: user.id,
+    orgId: org.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    emailVerified: false,
+  };
   setSessionCookie(signSession(session));
   return NextResponse.json({ user: { ...session, orgName: org.name } }, { status: 201 });
 }

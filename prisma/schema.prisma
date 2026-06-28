@@ -23,8 +23,8 @@ model Org {
   createdAt DateTime @default(now())
 
   // --- Billing / plan (e-commerce) ---
-  plan             String  @default("free")   // free | starter | scale | enterprise
-  monthlyQuota     Int     @default(25)       // verifications included per calendar month
+  plan             String  @default("free") // free | starter | scale | enterprise
+  monthlyQuota     Int     @default(25) // verifications included per calendar month
   billingStatus    String  @default("active") // active | past_due | canceled
   stripeCustomerId String?
   stripeSubId      String?
@@ -34,17 +34,28 @@ model Org {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  orgId        String
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         String   @default("member") // owner | admin | member
-  createdAt    DateTime @default(now())
-  lastLoginAt  DateTime?
+  id                        String    @id @default(cuid())
+  orgId                     String
+  email                     String    @unique
+  passwordHash              String
+  name                      String
+  role                      String    @default("member") // owner | admin | member
+  createdAt                 DateTime  @default(now())
+  lastLoginAt               DateTime?
   // Password reset: a single active, hashed, expiring token per user.
-  resetTokenHash String?
-  resetExpiresAt DateTime?
+  resetTokenHash            String?
+  resetExpiresAt            DateTime?
+  // Email verification at signup. Until emailVerifiedAt is non-null, the
+  // session middleware (src/lib/auth.ts) returns 403 on all routes except
+  // /api/auth/verify-email, /api/auth/resend-verification, and /api/auth/logout.
+  emailVerifiedAt           DateTime?
+  emailVerifyToken          String?   @unique
+  emailVerifyTokenExpiresAt DateTime?
+  // MFA (TOTP). mfaSecret is the base32 secret; mfaBackupCodes is a JSON array
+  // of bcrypt hashes; mfaEnabled gates the login flow.
+  mfaSecret                 String?
+  mfaEnabled                Boolean   @default(false)
+  mfaBackupCodes            String?
 
   org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -52,41 +63,41 @@ model User {
 }
 
 model Verification {
-  id            String  @id @default(cuid())
-  orgId         String
-  candidateName String
-  candidateEmail String
+  id              String    @id @default(cuid())
+  orgId           String
+  candidateName   String
+  candidateEmail  String
   // free-text context, e.g. "Senior Backend Engineer — remote contractor"
-  roleContext   String  @default("")
+  roleContext     String    @default("")
   // claimed location (country ISO) the candidate/recruiter asserts
-  declaredCountry String @default("")
+  declaredCountry String    @default("")
   // Candidate link capability. Generated with crypto.randomBytes (not cuid) so it
   // can't be predicted; expires and is revocable. See src/lib/token.ts.
-  token         String  @unique @default(cuid())
-  expiresAt     DateTime?
-  revokedAt     DateTime?
-  status        String  @default("pending") // pending | consented | processing | complete
+  token           String    @unique @default(cuid())
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  status          String    @default("pending") // pending | consented | processing | complete
 
   // --- results (populated on submit) ---
-  riskScore     Int?     // 0..100 (higher = more likely fake/fraudulent)
-  scoreVersion  String?  // scoring-engine version that produced riskScore (explainability)
-  band          String?  // pass | review | risk
-  verdict       String?  // human label
-  signalsJson   String?  // JSON array of evaluated signals
-  idvStatus     String?  // verified | requires_input | skipped | error
-  idvProvider   String?
-  idvSessionRef String?  // vendor session id (Stripe Identity)
-  idName        String?  // full name extracted from the government ID (for name-match)
-  selfieMatch   Float?
-  livenessPassed Boolean?
-  observedCountry String?
+  riskScore         Int? // 0..100 (higher = more likely fake/fraudulent)
+  scoreVersion      String? // scoring-engine version that produced riskScore (explainability)
+  band              String? // pass | review | risk
+  verdict           String? // human label
+  signalsJson       String? // JSON array of evaluated signals
+  idvStatus         String? // verified | requires_input | skipped | error
+  idvProvider       String?
+  idvSessionRef     String? // vendor session id (Stripe Identity)
+  idName            String? // full name extracted from the government ID (for name-match)
+  selfieMatch       Float?
+  livenessPassed    Boolean?
+  observedCountry   String?
   // Deepfake analysis is async (RD upload -> poll). While this is set, the result
   // page finalizes the deepfake signal on poll. Cleared once resolved/given up.
   deepfakeRequestId String?
-  behavioralJson  String?  // Feature 5: timing/interaction metadata (no keystrokes)
-  frameStorageKeys String? // Feature 6: JSON array of Supabase Storage keys
-  reviewDecision  String?  // Feature 6: "cleared" | "confirmed_fraud" | null
-  reviewNotes     String?  // Feature 6: recruiter annotation
+  behavioralJson    String? // Feature 5: timing/interaction metadata (no keystrokes)
+  frameStorageKeys  String? // Feature 6: JSON array of Supabase Storage keys
+  reviewDecision    String? // Feature 6: "cleared" | "confirmed_fraud" | null
+  reviewNotes       String? // Feature 6: recruiter annotation
 
   createdAt   DateTime  @default(now())
   completedAt DateTime?
@@ -102,8 +113,8 @@ model WebhookEndpoint {
   id              String    @id @default(cuid())
   orgId           String
   url             String
-  secret          String    // HMAC-SHA256 signing secret
-  events          String    // JSON array: ["verification.completed","verification.flagged"]
+  secret          String // HMAC-SHA256 signing secret
+  events          String // JSON array: ["verification.completed","verification.flagged"]
   enabled         Boolean   @default(true)
   createdAt       DateTime  @default(now())
   lastDeliveredAt DateTime?
@@ -114,17 +125,17 @@ model WebhookEndpoint {
 }
 
 model WebhookDelivery {
-  id                  String   @id @default(cuid())
+  id                  String    @id @default(cuid())
   endpointId          String
   verificationId      String
   event               String
   payloadJson         String
   responseStatus      Int?
   responseBodySnippet String?
-  attemptCount        Int      @default(0)
+  attemptCount        Int       @default(0)
   lastAttemptAt       DateTime?
-  success             Boolean  @default(false)
-  createdAt           DateTime @default(now())
+  success             Boolean   @default(false)
+  createdAt           DateTime  @default(now())
 
   endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
@@ -133,16 +144,16 @@ model WebhookDelivery {
 }
 
 model Consent {
-  id             String   @id @default(cuid())
-  verificationId String
-  type           String   // BIOMETRIC | DATA_PROCESSING
+  id              String   @id @default(cuid())
+  verificationId  String
+  type            String // BIOMETRIC | DATA_PROCESSING
   documentVersion String
-  documentHash   String
-  fullNameTyped  String
-  ipAddress      String
-  userAgent      String   @default("")
-  retentionPolicy String  @default("")
-  signedAt       DateTime @default(now())
+  documentHash    String
+  fullNameTyped   String
+  ipAddress       String
+  userAgent       String   @default("")
+  retentionPolicy String   @default("")
+  signedAt        DateTime @default(now())
 
   verification Verification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
 
@@ -150,14 +161,14 @@ model Consent {
 }
 
 model ApiKey {
-  id          String    @id @default(cuid())
-  orgId       String
-  keyHash     String    @unique
-  keyPrefix   String    // first 8 chars for display, e.g. "vfy_live"
-  name        String
-  createdAt   DateTime  @default(now())
-  lastUsedAt  DateTime?
-  enabled     Boolean   @default(true)
+  id         String    @id @default(cuid())
+  orgId      String
+  keyHash    String    @unique
+  keyPrefix  String // first 8 chars for display, e.g. "vfy_live"
+  name       String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  enabled    Boolean   @default(true)
 
   @@index([orgId])
 }
@@ -165,8 +176,8 @@ model ApiKey {
 model Integration {
   id        String   @id @default(cuid())
   orgId     String   @unique
-  provider  String   // "greenhouse"
-  config    String   // JSON: {harvestApiKey, webhookSecret, triggerStageId, jobIds[]}
+  provider  String // "greenhouse"
+  config    String // JSON: {harvestApiKey, webhookSecret, triggerStageId, jobIds[]}
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
 

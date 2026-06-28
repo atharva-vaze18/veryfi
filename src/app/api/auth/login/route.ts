@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { verifyPassword, signSession, setSessionCookie } from "@/lib/auth";
+import { verifyPassword, signSession, setSessionCookie, signMfaPending, setMfaPendingCookie } from "@/lib/auth";
 import { getClientIp } from "@/lib/request";
 import { rateLimit } from "@/lib/ratelimit";
 
@@ -22,8 +22,24 @@ export async function POST(req: Request) {
   if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
+
+  // MFA gate: when enabled, do NOT issue a real session — instead set a
+  // short-lived mfa_pending cookie. The client posts a TOTP code (or backup
+  // code) to /api/auth/mfa/challenge which trades it for the real session.
+  if (user.mfaEnabled) {
+    setMfaPendingCookie(signMfaPending(user.id));
+    return NextResponse.json({ mfaRequired: true });
+  }
+
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  const session = { userId: user.id, orgId: user.orgId, email: user.email, name: user.name, role: user.role };
+  const session = {
+    userId: user.id,
+    orgId: user.orgId,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    emailVerified: !!user.emailVerifiedAt,
+  };
   setSessionCookie(signSession(session));
   return NextResponse.json({ user: { ...session, orgName: user.org.name } });
 }
