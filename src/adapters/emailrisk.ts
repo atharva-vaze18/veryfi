@@ -1,4 +1,5 @@
 import { promises as dns } from "node:dns";
+import { traced } from "@/lib/observability";
 
 // REAL email risk — disposable-domain detection, free-mail vs corporate, and a
 // live MX-record check (the domain can actually receive mail). All free.
@@ -32,7 +33,7 @@ export async function getEmailRisk(email: string): Promise<EmailRisk> {
   }
   let hasMx = false;
   try {
-    const mx = await dns.resolveMx(domain);
+    const mx = await traced("emailrisk", "mx_lookup", () => dns.resolveMx(domain));
     hasMx = Array.isArray(mx) && mx.length > 0;
   } catch {
     hasMx = false;

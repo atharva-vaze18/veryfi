@@ -1,4 +1,5 @@
 import { env, features } from "@/lib/env";
+import { traced } from "@/lib/observability";
 
 // REAL ID + selfie + liveness. Two providers, selected by env:
 //   • Didit (free)  — preferred when DIDIT_API_KEY + DIDIT_WORKFLOW_ID are set.
@@ -73,17 +74,19 @@ export async function createIdvSession(opts: {
 }): Promise<IdvSessionInfo> {
   // Preferred: Didit (free) — v3 sessions API.
   if (features.didit) {
-    const res = await fetch("https://verification.didit.me/v3/session/", {
-      method: "POST",
-      headers: { "x-api-key": env.DIDIT_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workflow_id: env.DIDIT_WORKFLOW_ID,
-        vendor_data: opts.verificationId,
-        callback: opts.returnUrl,
-        callback_method: "initiator",
+    const res = await traced("identity", "didit_create_session", () =>
+      fetch("https://verification.didit.me/v3/session/", {
+        method: "POST",
+        headers: { "x-api-key": env.DIDIT_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workflow_id: env.DIDIT_WORKFLOW_ID,
+          vendor_data: opts.verificationId,
+          callback: opts.returnUrl,
+          callback_method: "initiator",
+        }),
+        signal: AbortSignal.timeout(15000),
       }),
-      signal: AbortSignal.timeout(15000),
-    });
+    );
     if (!res.ok) throw new Error(`Didit error ${res.status}: ${await res.text()}`);
     const j = (await res.json()) as { session_id: string; url?: string };
     return { provider: "Didit", sessionRef: j.session_id, url: j.url ?? null, enabled: true };
@@ -92,21 +95,23 @@ export async function createIdvSession(opts: {
   if (!features.stripeIdentity) {
     return { provider: "none", sessionRef: null, url: null, enabled: false };
   }
-  const res = await fetch("https://api.stripe.com/v1/identity/verification_sessions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: form({
-      type: "document",
-      "options[document][require_matching_selfie]": "true",
-      "options[document][require_live_capture]": "true",
-      "metadata[verificationId]": opts.verificationId,
-      return_url: opts.returnUrl,
+  const res = await traced("identity", "stripe_create_session", () =>
+    fetch("https://api.stripe.com/v1/identity/verification_sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form({
+        type: "document",
+        "options[document][require_matching_selfie]": "true",
+        "options[document][require_live_capture]": "true",
+        "metadata[verificationId]": opts.verificationId,
+        return_url: opts.returnUrl,
+      }),
+      signal: AbortSignal.timeout(12000),
     }),
-    signal: AbortSignal.timeout(12000),
-  });
+  );
   if (!res.ok) throw new Error(`Stripe Identity error ${res.status}: ${await res.text()}`);
   const j = (await res.json()) as { id: string; url?: string; client_secret?: string };
   return { provider: "Stripe Identity", sessionRef: j.id, url: j.url ?? null, enabled: true };
@@ -119,10 +124,12 @@ export async function fetchIdvResult(sessionRef: string | null): Promise<IdvResu
 
   // Didit decision endpoint (v3).
   if (features.didit) {
-    const res = await fetch(`https://verification.didit.me/v3/session/${sessionRef}/decision/`, {
-      headers: { "x-api-key": env.DIDIT_API_KEY },
-      signal: AbortSignal.timeout(15000),
-    });
+    const res = await traced("identity", "didit_fetch_decision", () =>
+      fetch(`https://verification.didit.me/v3/session/${sessionRef}/decision/`, {
+        headers: { "x-api-key": env.DIDIT_API_KEY },
+        signal: AbortSignal.timeout(15000),
+      }),
+    );
     if (!res.ok) return { status: "error", selfieMatch: null, livenessPassed: null, provider: "Didit", idName: null };
     const j = (await res.json()) as { status?: string };
     const approved = j.status === "Approved";
@@ -145,10 +152,12 @@ export async function fetchIdvResult(sessionRef: string | null): Promise<IdvResu
   if (!features.stripeIdentity) {
     return { status: "skipped", selfieMatch: null, livenessPassed: null, provider: "none", idName: null };
   }
-  const res = await fetch(`https://api.stripe.com/v1/identity/verification_sessions/${sessionRef}?expand[]=verified_outputs`, {
-    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
-    signal: AbortSignal.timeout(12000),
-  });
+  const res = await traced("identity", "stripe_fetch_session", () =>
+    fetch(`https://api.stripe.com/v1/identity/verification_sessions/${sessionRef}?expand[]=verified_outputs`, {
+      headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
+      signal: AbortSignal.timeout(12000),
+    }),
+  );
   if (!res.ok) return { status: "error", selfieMatch: null, livenessPassed: null, provider: "Stripe Identity", idName: null };
   const j = (await res.json()) as { status: string; verified_outputs?: { first_name?: string; last_name?: string } };
   const verified = j.status === "verified";

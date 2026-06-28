@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { prisma } from "./db";
+import { Sentry } from "./observability";
 
 // Delivers a webhook event to all enabled endpoints subscribed to `event` for the
 // given verification's org. Retries up to 3 times with exponential backoff on
@@ -83,6 +84,14 @@ async function deliverToEndpoint(
     await prisma.webhookEndpoint.update({
       where: { id: endpointId },
       data: { lastDeliveredAt: new Date() },
+    });
+  } else {
+    // All retries exhausted — surface to Sentry so a recipient whose endpoint
+    // is consistently down shows up in the alert stream rather than silently
+    // burning attempts. PII (signed payload) is intentionally excluded.
+    Sentry.captureException(new Error("webhook_delivery_exhausted"), {
+      tags: { event, endpointId },
+      extra: { url, verificationId, lastStatus: responseStatus },
     });
   }
 }

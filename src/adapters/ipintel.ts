@@ -1,4 +1,5 @@
 import { env, features } from "@/lib/env";
+import { traced } from "@/lib/observability";
 
 // REAL connection forensics. With an IPQualityScore key you get VPN / proxy / Tor
 // / datacenter + a fraud score. Without it, geolocation still works via the free
@@ -78,7 +79,7 @@ export async function getIpIntel(ip: string): Promise<IpIntel> {
   if (features.proxycheck) {
     try {
       const url = `https://proxycheck.io/v2/${encodeURIComponent(ip)}?key=${env.PROXYCHECK_API_KEY}&vpn=1&asn=1&risk=1`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
+      const res = await traced("ipintel", "proxycheck", () => fetch(url, { signal: AbortSignal.timeout(7000) }));
       if (res.ok) {
         const j = (await res.json()) as Record<string, unknown>;
         const rec = j[ip] as Record<string, unknown> | undefined;
@@ -113,7 +114,7 @@ export async function getIpIntel(ip: string): Promise<IpIntel> {
       const url = `https://ipqualityscore.com/api/json/ip/${env.IPQS_API_KEY}/${encodeURIComponent(
         ip,
       )}?strictness=1&allow_public_access_points=true`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
+      const res = await traced("ipintel", "ipqs", () => fetch(url, { signal: AbortSignal.timeout(7000) }));
       if (res.ok) {
         const j = (await res.json()) as Record<string, unknown>;
         if (j.success !== false) {
@@ -142,9 +143,9 @@ export async function getIpIntel(ip: string): Promise<IpIntel> {
 
   // Free fallback: ipapi.co — geolocation only (no VPN flags).
   try {
-    const res = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
-      signal: AbortSignal.timeout(5000),
-    });
+    const res = await traced("ipintel", "ipapi", () =>
+      fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, { signal: AbortSignal.timeout(5000) }),
+    );
     if (res.ok) {
       const j = (await res.json()) as Record<string, unknown>;
       if (!j.error) {

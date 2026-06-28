@@ -43,4 +43,19 @@ const nextConfig = {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
 };
-export default nextConfig;
+
+// Wrap with Sentry. The wrapper is a no-op when SENTRY_DSN/SENTRY_ORG/SENTRY_PROJECT
+// are unset, so local dev (and any deploy without monitoring configured) stays clean.
+async function withSentry(config) {
+  if (!process.env.SENTRY_DSN) return config;
+  const { withSentryConfig } = await import("@sentry/nextjs");
+  return withSentryConfig(config, {
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    silent: true,
+    disableLogger: true,
+    automaticVercelMonitors: false,
+  });
+}
+
+export default await withSentry(nextConfig);

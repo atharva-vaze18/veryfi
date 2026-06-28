@@ -1,5 +1,6 @@
 import { RealityDefender } from "@realitydefender/realitydefender";
 import { env, features } from "@/lib/env";
+import { traced } from "@/lib/observability";
 
 // Deepfake-content scoring via Reality Defender (free ~50/mo tier). Analyzes the
 // candidate's captured selfie frame for AI-generated / manipulated media. This is
@@ -35,7 +36,7 @@ export async function startDeepfake(filePath?: string | null): Promise<string | 
   if (!features.realityDefender || !filePath) return null;
   try {
     const rd = new RealityDefender({ apiKey: env.REALITY_DEFENDER_API_KEY });
-    const { requestId } = await rd.upload({ filePath });
+    const { requestId } = await traced("deepfake", "rd_upload", () => rd.upload({ filePath }));
     return requestId ?? null;
   } catch {
     return null;
@@ -49,10 +50,12 @@ export async function getDeepfakeResult(requestId: string): Promise<DeepfakeResu
   if (!features.realityDefender) return notConfigured();
   try {
     const rd = new RealityDefender({ apiKey: env.REALITY_DEFENDER_API_KEY });
-    const result = (await Promise.race([
-      rd.getResult(requestId),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("RD timeout")), env.DEEPFAKE_TIMEOUT_MS)),
-    ])) as { status?: string; score?: number | null; models?: DeepfakeModel[] };
+    const result = (await traced("deepfake", "rd_get_result", () =>
+      Promise.race([
+        rd.getResult(requestId),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("RD timeout")), env.DEEPFAKE_TIMEOUT_MS)),
+      ]),
+    )) as { status?: string; score?: number | null; models?: DeepfakeModel[] };
     const score = typeof result.score === "number" ? result.score : null;
     if (score == null) return pendingDeepfake(); // still analyzing
     return {
