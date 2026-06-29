@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { OrbytMark } from "@/components/ui";
+import { LandingNavAuth } from "@/components/LandingNavAuth";
 import {
   ArrowRight, IdCard, Eye, Camera, Shield, Globe, Clock, Mail, Behavior,
 } from "@/components/icons";
@@ -68,11 +69,7 @@ export default function Landing() {
               <a href="#signals" className="px-3 py-1.5 text-[13.5px] text-muted transition-colors hover:text-ink">Signals</a>
               <a href="#pricing" className="px-3 py-1.5 text-[13.5px] text-muted transition-colors hover:text-ink">Pricing</a>
               <span className="mx-1.5 h-5 w-px bg-rule" />
-              <Link href="/auth" className="px-3 py-1.5 text-[13.5px] text-muted transition-colors hover:text-ink">Sign in</Link>
-              <Link href="/auth?mode=signup"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-[15px] py-2 text-[13.5px] font-semibold text-paper transition-all hover:shadow-glow hover:-translate-y-px">
-                Start free <ArrowRight size={14} />
-              </Link>
+              <LandingNavAuth />
             </nav>
           </div>
         </header>
