@@ -40,8 +40,6 @@ const STEPS = [
   { n: "03", title: "You see a verdict", body: "Pass · Review · Risk with the exact signals that triggered it, in a hash-chained audit log. The hiring call stays yours." },
 ];
 
-const LOGOS = ["Acme", "Northwind", "Globex", "Initech", "Hooli"];
-
 export default function Landing() {
   return (
     <div className="relative min-h-screen overflow-x-hidden">
@@ -109,18 +107,6 @@ export default function Landing() {
             </div>
 
             <HeroScanner />
-          </div>
-        </section>
-
-        {/* TRUST LOGOS */}
-        <section className="border-b border-[#141d33]">
-          <div className="mx-auto max-w-[1180px] px-6 py-[34px] text-center">
-            <p className="mb-[18px] font-mono text-[10px] uppercase tracking-[0.16em] text-[#5d6b8c]">Trusted by recruiting &amp; security teams at</p>
-            <div className="flex flex-wrap items-center justify-center gap-x-[46px] gap-y-4">
-              {LOGOS.map((l) => (
-                <span key={l} className="font-display text-[18px] font-semibold text-[#56648a] opacity-85">{l}</span>
-              ))}
-            </div>
           </div>
         </section>
 
