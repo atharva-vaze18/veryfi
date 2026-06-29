@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
-import { BandBadge } from "@/components/ui";
+import { BandBadge, InitialsAvatar } from "@/components/ui";
+import { Plus } from "@/components/icons";
 
 interface Row { id: string; candidateName: string; candidateEmail: string; roleContext: string; status: string; band: string | null; riskScore: number | null; verdict: string | null; createdAt: string }
 interface Stats { total: number; pending: number; thisMonth: number; flagged: number; review: number; pass: number }
@@ -10,6 +11,13 @@ interface PageInfo { page: number; limit: number; total: number; pages: number }
 
 type BandFilter = "" | "pass" | "review" | "risk";
 type StatusFilter = "" | "pending" | "consented" | "processing" | "complete" | "expired";
+
+const BAND_TABS: { key: BandFilter; label: string; tone: string }[] = [
+  { key: "", label: "All", tone: "text-ink" },
+  { key: "pass", label: "Pass", tone: "text-pass" },
+  { key: "review", label: "Review", tone: "text-review" },
+  { key: "risk", label: "Risk", tone: "text-risk" },
+];
 
 export default function Dashboard() {
   return <AppShell><Inner /></AppShell>;
@@ -44,19 +52,14 @@ function Inner() {
   }, [page, band, statusF, debouncedSearch]);
 
   // Live polling: every 5s, but only when there are pending verifications on
-  // the visible page (deepfake finalize etc). Otherwise the list is steady and
-  // we just refresh on tab focus.
+  // the visible page (deepfake finalize etc). Otherwise refresh on tab focus.
   useEffect(() => {
     let active = true;
     const load = async () => {
       if (document.hidden) return;
       try {
         const d = await (await fetch(`/api/verifications?${query}`)).json();
-        if (active) {
-          setRows(d.verifications);
-          setStats(d.stats);
-          setPageInfo(d.page);
-        }
+        if (active) { setRows(d.verifications); setStats(d.stats); setPageInfo(d.page); }
       } catch { /* transient — keep polling */ }
     };
     load();
@@ -77,29 +80,37 @@ function Inner() {
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-6">
+      {/* page header */}
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl text-ink">Verifications</h1>
-          <p className="text-muted text-sm mt-1">Candidate identity &amp; interview-integrity checks.</p>
+          <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-ink">Verifications</h1>
+          <p className="mt-1.5 text-[14px] text-muted">Candidate identity &amp; interview-integrity checks.</p>
         </div>
-        <Link href="/verify/new" className="btn-primary">+ New verification</Link>
+        <Link href="/verify/new" className="inline-flex items-center gap-[7px] rounded-[9px] bg-accent px-[18px] py-2.5 text-[14px] font-semibold text-paper transition-shadow hover:shadow-glow">
+          <Plus size={15} /> New verification
+        </Link>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-rule border border-rule rounded-lg overflow-hidden mb-8">
-        <Stat label="This month" value={stats?.thisMonth ?? 0} hint="billable" />
-        <Stat label="Pending" value={stats?.pending ?? 0} tone="text-accent" />
-        <Stat label="Review" value={stats?.review ?? 0} tone="text-review" />
-        <Stat label="High risk" value={stats?.flagged ?? 0} tone="text-risk" />
+      {/* stats */}
+      <div className="mb-[22px] grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+        <StatCard label="This month" value={stats?.thisMonth ?? 0} caption="billable checks" accent={<span className="font-mono text-[11px] text-pass">▲</span>} />
+        <StatCard label="Pending" value={stats?.pending ?? 0} caption="awaiting candidate" tone="text-accent" dot="#4d8dff" />
+        <StatCard label="Review" value={stats?.review ?? 0} caption="needs a human call" tone="text-review" dot="#f3b34d" />
+        <StatCard label="High risk" value={stats?.flagged ?? 0} caption="flagged this month" tone="text-risk" dot="#ff6f6b" />
       </div>
 
-      {/* Filter bar */}
-      <div className="panel mb-4 px-4 py-3 flex flex-wrap items-center gap-2">
-        <BandPill label="All" active={band === ""} onClick={() => setBand("")} />
-        <BandPill label="Pass" active={band === "pass"} onClick={() => setBand("pass")} tone="text-pass" />
-        <BandPill label="Review" active={band === "review"} onClick={() => setBand("review")} tone="text-review" />
-        <BandPill label="Risk" active={band === "risk"} onClick={() => setBand("risk")} tone="text-risk" />
-        <div className="w-px h-5 bg-rule mx-1" />
-        <select className="field text-xs py-1.5" value={statusF} onChange={(e) => setStatusF(e.target.value as StatusFilter)}>
+      {/* filter bar */}
+      <div className="mb-3.5 flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 rounded-[10px] border border-[#1a2440] bg-paper-2 p-[3px]">
+          {BAND_TABS.map((t) => (
+            <button key={t.key || "all"} onClick={() => setBand(t.key)}
+              className={`rounded-[7px] px-3 py-[5px] font-mono text-[11.5px] transition-colors ${band === t.key ? "bg-accent/[0.16] text-ink" : `${t.tone} hover:text-ink`}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <select value={statusF} onChange={(e) => setStatusF(e.target.value as StatusFilter)}
+          className="cursor-pointer rounded-[9px] border border-[#1a2440] bg-paper-2 px-3 py-[7px] font-body text-[12.5px] text-muted outline-none">
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
           <option value="consented">Consented</option>
@@ -107,83 +118,103 @@ function Inner() {
           <option value="complete">Complete</option>
           <option value="expired">Expired</option>
         </select>
-        <input className="field text-xs py-1.5 flex-1 min-w-[200px]"
-          placeholder="Search name or email…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or email…"
+          className="w-[200px] rounded-[9px] border border-[#1a2440] bg-paper-2 px-3 py-[7px] text-[12.5px] text-ink outline-none placeholder:text-[#5d6b8c] focus:border-accent" />
         {hasFilters && (
-          <button className="text-xs text-muted hover:text-ink" onClick={() => { setBand(""); setStatusF(""); setSearch(""); }}>
-            Clear
-          </button>
+          <button className="text-[12px] text-muted hover:text-ink" onClick={() => { setBand(""); setStatusF(""); setSearch(""); }}>Clear</button>
         )}
+        <div className="flex-1" />
+        <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-[#5d6b8c]">
+          <span className="h-1.5 w-1.5 rounded-full bg-pass animate-blink" style={{ animationDuration: "1.8s" }} />
+          Live · {pageInfo.total} records
+        </span>
       </div>
 
-      <div className="panel overflow-hidden">
-        <div className="px-5 py-3 border-b border-rule flex items-center justify-between">
-          <span className="font-display text-ink">Recent</span>
-          <span className="label inline-flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-pass animate-pulse" /> live · {pageInfo.total} records
-          </span>
+      {/* table */}
+      <div className="overflow-hidden rounded-[14px] border border-[#1a2440] bg-[#0b1120]">
+        <div className="grid grid-cols-[2.4fr_1.6fr_1fr_1fr_1.2fr_0.8fr] gap-3 border-b border-[#161f38] px-[22px] py-[13px] font-mono text-[10px] uppercase tracking-[0.1em] text-[#5d6b8c]">
+          <span>Candidate</span><span>Role</span><span>Status</span><span>Result</span><span>Risk</span><span className="text-right">Actions</span>
         </div>
+
         {rows.length === 0 ? (
-          <div className="px-5 py-12 text-center text-muted text-sm">
+          <div className="px-5 py-16 text-center text-[14px] text-muted">
             {hasFilters
-              ? <>No verifications match these filters.</>
+              ? "No verifications match these filters."
               : <>No verifications yet. <Link href="/verify/new" className="text-accent">Create your first →</Link></>}
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead><tr className="text-left label">
-              <th className="px-5 py-2 font-normal">Candidate</th>
-              <th className="px-5 py-2 font-normal">Role</th>
-              <th className="px-5 py-2 font-normal">Status</th>
-              <th className="px-5 py-2 font-normal">Result</th>
-              <th className="px-5 py-2 font-normal">Risk</th>
-              <th className="px-5 py-2 font-normal"></th>
-            </tr></thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-t border-rule/60 hover:bg-paper-3/40">
-                  <td className="px-5 py-3"><div className="text-ink">{r.candidateName}</div><div className="text-muted text-xs">{r.candidateEmail}</div></td>
-                  <td className="px-5 py-3 text-muted text-xs">{r.roleContext || "—"}</td>
-                  <td className="px-5 py-3 text-xs text-muted">{r.status}</td>
-                  <td className="px-5 py-3"><BandBadge band={r.band} /></td>
-                  <td className="px-5 py-3 font-mono text-xs text-ink">{r.riskScore ?? "—"}</td>
-                  <td className="px-5 py-3 text-right whitespace-nowrap">
-                    <Link href={`/verify/${r.id}`} className="text-accent text-sm">Open →</Link>
-                    <button onClick={() => del(r.id, r.candidateName)} className="ml-4 text-muted hover:text-risk text-sm" title="Delete profile">Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {pageInfo.pages > 1 && (
-          <div className="px-5 py-3 border-t border-rule flex items-center justify-between text-xs text-muted">
-            <span>Page {pageInfo.page} of {pageInfo.pages}</span>
-            <div className="flex items-center gap-2">
-              <button className="btn-ghost text-xs py-1" disabled={pageInfo.page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</button>
-              <button className="btn-ghost text-xs py-1" disabled={pageInfo.page >= pageInfo.pages} onClick={() => setPage((p) => Math.min(pageInfo.pages, p + 1))}>Next →</button>
+          <>
+            {rows.map((r) => (
+              <div key={r.id} className="grid grid-cols-[2.4fr_1.6fr_1fr_1fr_1.2fr_0.8fr] items-center gap-3 border-b border-[#131c30] px-[22px] py-3.5 transition-colors hover:bg-[#162038]/50">
+                <div className="flex min-w-0 items-center gap-[11px]">
+                  <InitialsAvatar name={r.candidateName} />
+                  <div className="min-w-0">
+                    <div className="truncate text-[14px] text-ink">{r.candidateName}</div>
+                    <div className="truncate text-[12px] text-[#5d6b8c]">{r.candidateEmail}</div>
+                  </div>
+                </div>
+                <div className="truncate text-[13px] text-muted">{r.roleContext || "—"}</div>
+                <div>
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted">
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: statusDot(r.status) }} />{r.status}
+                  </span>
+                </div>
+                <div><BandBadge band={r.band} /></div>
+                <div><RiskBar score={r.riskScore} band={r.band} /></div>
+                <div className="whitespace-nowrap text-right">
+                  <Link href={`/verify/${r.id}`} className="text-[13px] text-accent hover:underline">Open</Link>
+                  <button onClick={() => del(r.id, r.candidateName)} className="ml-3.5 text-[13px] text-[#4d597a] transition-colors hover:text-risk" title="Delete profile">Delete</button>
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-[22px] py-[13px] text-[12.5px] text-[#5d6b8c]">
+              <span>Showing {rows.length} of {pageInfo.total}</span>
+              <div className="flex gap-2">
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={pageInfo.page <= 1}
+                  className="rounded-lg border border-[#1e2842] bg-paper-2 px-3 py-1.5 text-[12.5px] text-muted transition-colors enabled:hover:border-accent/50 enabled:hover:text-accent disabled:opacity-40">← Prev</button>
+                <button onClick={() => setPage((p) => Math.min(pageInfo.pages, p + 1))} disabled={pageInfo.page >= pageInfo.pages}
+                  className="rounded-lg border border-[#1e2842] bg-paper-2 px-3 py-1.5 text-[12.5px] text-ink transition-colors enabled:hover:border-accent/50 enabled:hover:text-accent disabled:opacity-40">Next →</button>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function BandPill({ label, active, onClick, tone }: { label: string; active: boolean; onClick: () => void; tone?: string }) {
+function statusDot(status: string): string {
+  if (status === "processing") return "#4d8dff";
+  if (status === "pending") return "#7c6a3a";
+  if (status === "consented") return "#4d8dff";
+  if (status === "expired") return "#ff6f6b";
+  return "#3a4d7d"; // complete / default
+}
+
+function RiskBar({ score, band }: { score: number | null; band: string | null }) {
+  if (score == null) return <span className="font-mono text-[13px] text-[#4d597a]">—</span>;
+  const color = band === "risk" ? "#ff6f6b" : band === "review" ? "#f3b34d" : "#3ddc97";
   return (
-    <button onClick={onClick}
-      className={`text-xs px-2.5 py-1 rounded font-mono transition-colors ${active ? "bg-accent/15 text-ink border border-accent/40" : `border border-rule ${tone ?? "text-muted"} hover:text-ink`}`}>
-      {label}
-    </button>
+    <div className="flex items-center gap-[9px]">
+      <span className="w-[22px] font-mono text-[13px] text-ink">{score}</span>
+      <div className="h-[5px] max-w-[64px] flex-1 overflow-hidden rounded" style={{ background: "#101a30" }}>
+        <div className="h-full rounded" style={{ width: `${Math.min(100, score)}%`, background: color }} />
+      </div>
+    </div>
   );
 }
 
-function Stat({ label, value, hint, tone }: { label: string; value: number; hint?: string; tone?: string }) {
+function StatCard({ label, value, caption, tone, dot, accent }: {
+  label: string; value: number; caption: string; tone?: string; dot?: string; accent?: ReactNode;
+}) {
   return (
-    <div className="bg-paper-2 px-5 py-4">
-      <div className="label">{label}{hint ? ` · ${hint}` : ""}</div>
-      <div className={`font-display text-3xl mt-1 ${tone ?? "text-ink"}`}>{value}</div>
+    <div className="rounded-[13px] border border-[#1a2440] px-5 py-[18px]" style={{ background: "linear-gradient(180deg,#0d1426,#0b1120)" }}>
+      <div className="mb-3 flex items-center justify-between">
+        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#7c89a8]">{label}</span>
+        {accent ?? (dot ? <span className="h-[7px] w-[7px] rounded-full" style={{ background: dot, boxShadow: `0 0 8px ${dot}` }} /> : null)}
+      </div>
+      <div className={`font-display text-[30px] font-semibold leading-none ${tone ?? "text-ink"}`}>{value}</div>
+      <div className="mt-[5px] text-[11.5px] text-[#5d6b8c]">{caption}</div>
     </div>
   );
 }
