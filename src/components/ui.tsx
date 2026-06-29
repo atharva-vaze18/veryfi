@@ -26,6 +26,41 @@ export function Brand({ markSize = 26 }: { markSize?: number }) {
   );
 }
 
+// Deterministic initials avatar (gradient bg derived from the name) used by the
+// dashboard rows and the sidebar user block. Pure presentation.
+const AVATAR_BGS = [
+  "linear-gradient(135deg,#1f3a6b,#16233f)",
+  "linear-gradient(135deg,#3a2a5e,#1d2138)",
+  "linear-gradient(135deg,#143f4d,#15273a)",
+  "linear-gradient(135deg,#4d2f2a,#2a1d24)",
+  "linear-gradient(135deg,#234a36,#162a2a)",
+];
+
+export function initialsOf(name: string): string {
+  return (name || "?")
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+export function InitialsAvatar({ name, size = 34, radius = 9 }: { name: string; size?: number; radius?: number }) {
+  // Stable bg choice from the name so a given candidate keeps the same color.
+  let h = 0;
+  for (let i = 0; i < (name?.length ?? 0); i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  const bg = AVATAR_BGS[h % AVATAR_BGS.length];
+  return (
+    <div
+      className="flex shrink-0 items-center justify-center font-display font-semibold text-[#dbe6ff]"
+      style={{ width: size, height: size, borderRadius: radius, background: bg, fontSize: size * 0.37 }}
+    >
+      {initialsOf(name)}
+    </div>
+  );
+}
+
 const BAND = {
   pass: { t: "text-pass", b: "border-pass/40", bg: "bg-pass/10", label: "PASS" },
   review: { t: "text-review", b: "border-review/40", bg: "bg-review/10", label: "REVIEW" },
