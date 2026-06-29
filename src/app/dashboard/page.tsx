@@ -58,8 +58,13 @@ function Inner() {
     const load = async () => {
       if (document.hidden) return;
       try {
-        const d = await (await fetch(`/api/verifications?${query}`)).json();
-        if (active) { setRows(d.verifications); setStats(d.stats); setPageInfo(d.page); }
+        const r = await fetch(`/api/verifications?${query}`);
+        const d = await r.json().catch(() => null);
+        // Guard against non-OK / error payloads (e.g. 403 email_not_verified):
+        // never feed a non-array into setRows or the table crashes.
+        if (active && r.ok && Array.isArray(d?.verifications)) {
+          setRows(d.verifications); setStats(d.stats); setPageInfo(d.page);
+        }
       } catch { /* transient — keep polling */ }
     };
     load();
