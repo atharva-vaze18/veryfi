@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { OrbytMark } from "@/components/ui";
@@ -13,7 +13,7 @@ const FEATURES = [
 
 type Mode = "signin" | "signup";
 
-export default function Landing() {
+function AuthInner() {
   const router = useRouter();
   const search = useSearchParams();
   const initialMode: Mode = search.get("mode") === "signup" ? "signup" : "signin";
@@ -143,5 +143,15 @@ export default function Landing() {
         </div>
       </div>
     </div>
+  );
+}
+
+// useSearchParams() must sit under a Suspense boundary, otherwise Next 14 fails
+// to statically prerender /auth and the whole production build errors out.
+export default function AuthPage() {
+  return (
+    <Suspense fallback={<div className="p-10 text-muted text-sm">Loading…</div>}>
+      <AuthInner />
+    </Suspense>
   );
 }
